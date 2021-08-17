@@ -14,7 +14,7 @@ function result = ChronAlyzer()
 
 %% Variablen-Declaration
 
-	version_str		= 'v0.8.5'; % current version
+	version_str		= 'v0.8.6'; % current version
 
 	monitor			= get(0,'screensize');
 	NoAudio         = false; % option for muting (valid only within this file)
@@ -59,13 +59,6 @@ function result = ChronAlyzer()
 	
 	% for annotation - obsolete
 	config			= []; % obsolete too?
-	% Experimentname	= [];
-	% Experimenter	= [];
-	% Datum			= [];
-	% Beschreibung	= [];
-	% Wells			= [];
-	% Replikatgruppen = [];
-	
 	
 	% (measurement) device-depending file format options (this is important
 	% for the order of the information/wells within the files)
@@ -353,7 +346,9 @@ function result = ChronAlyzer()
 		'- added this weighing factor to the general options dialog (and it''s saved to user settings that way' CR ...
 		'- added a gray-color gradient background to show time-range of weighting factors fade-in for optimization' ...
 		'- added more time-outs to dialog windows, to enhance "automatic" run of ChronAlyzer (not yet 100%)' CR ...		
-		'- LOTS of minor (and not so minor) improvements to code (e.g. readability) and output.' ...
+		'- LOTS of minor (and not so minor) improvements to code (e.g. readability) and output.' CR ...
+		'0.8.6' CR ...
+		'- MOVED TO GIT:  https://github.com/ChronAlyzer/ChronAlyzer.git' ...
 		];
 	
 	end
@@ -373,7 +368,7 @@ function result = ChronAlyzer()
 	end
 	quotes_str	= regexprep(quotes_str(1:end-1),'"(\s*- )','"\n\n');
 	
-	grusstext	= ['Hello ' username '!' CR  CR 'You have started ChronAlyzer version ' version_str CR CR important CR CR repmat('-',1,85) ...
+	grusstext	= ['Hello ' username '!' CR  CR 'You have started ChronAlyzer version ' version_str CR important CR repmat('-',1,85) ...
 		CR CR CR  grusstext(idx_txt:end) CR repmat('-',1,85) CR CR quotes_str ];
 	
 	% Output of complete greeting text
@@ -400,9 +395,12 @@ function result = ChronAlyzer()
 		% move and resize
 		set(gcf,'position',[figure_position(1) figure_position(2) figure_position(3) figure_position(4) + enlarge_diff])
 		logo_axes_h.Position(2)		= logo_axes_h.Position(2) + enlarge_diff; % 50: space for button
-		gruss_text_h.Position(2)	= 100; % 100: space for button
+		gruss_text_h.Position(2)	= 80; % 100: space for button
 		gruss_text_h.Position(3)	= 620;
 		gruss_text_h.Position(4)	= gruss_text_h.Position(4) + enlarge_diff + 100; % 100: space for button
+		% ToDo: This re-sizing does not work if changes contain too many
+		% lines --> re-write the whole section, use a fixed window height
+		% and use scroll bars ...
 	end
 	drawnow
 	
@@ -633,8 +631,7 @@ function result = ChronAlyzer()
 				end
 				
 				if size(raw,2) > size(txt,2)
-					% "Fehler" im Excel-File (oder in xlsread function); raw enthält viel zu viele
-					% Spalten
+					% "error" in Excel file?  "raw" contains too many columns
 					raw(:,size(txt,2)+1:end) = [];
 					msgbox(['Warning: Possible inconsistence in ' fname{file_idx} ', maybe just caused by additional empty rows or columns (if so, this warning can be ignored)'])
 				end
@@ -646,11 +643,16 @@ function result = ChronAlyzer()
 					anz_reads = numel(cellstrfind(txt(:,1),'^t \[h\]')); % Für Envision-Files: Wieviele Datensätze sind in diesem File enthalten?
 				end
 				
-				% Hinweis: Bei Mithras-Dateien steht "Time" einmal in der
-				% ersten Spalte vor den Messdaten, bei BioTec steht es
-				% in den Metadaten, und in der zweiten Spalte einmal vor
-				% den Messdaten. Bislang erzeugt BioTec aber keine
-				% Multi-Datensätze (s.u., Zeile 369 ff.)
+
+				% Note:
+				% -- Mithras and Envision devices use the word "Time" only once; in the
+				% column before the time-series data. Detect Envision by
+				% finding the key word "Synergy Neo2". This should be
+				% modified for different devices.
+				% -- BioTec uses "Times" twice; the first in the meta data
+				% header, the second in the second column before the
+				% measurement data
+				
 				
 				if anz_reads > 1 && file_anz > 1
 					error('The current version of this program cannot process biological replicates and data files containing multi-channel data at the same time!')
@@ -660,12 +662,9 @@ function result = ChronAlyzer()
 					error('Somehow this program encounters unexpected data structures, perhaps an update is needed (please contact author, code:"Channel anz_read > 2")');
 				end
 				
-				if size(txt,1) == 1 % Verzweigung für Geräte-Filter
+				if size(txt,1) == 1 % Detect device-dependent text entries
 					
-					% EnvisionDaten (aktueller Zustand, kann sich noch
-					% ändern!! )
-						%data_starts = cellstrfind(txt,'t \[h\]'); % Backslash wegen regulärem Ausdruck
-						%data_ends	= cellstrfind(txt,'','exact');
+					% EnvisionDaten 
 						
 						device_envision	= true;
 						data_starts		= 2;
@@ -688,11 +687,11 @@ function result = ChronAlyzer()
 						data_ends		= cellstrfind(txt(:,1),'','exact');
 						
 						if isempty(data_ends)
-							% Das ist manchmal der Fall (nach manueller
-							% Änderung), wenn Dokument mit dem letzten Eintrag
-							% endet (Abhilfe: Nach den Daten in Spalte "B" ein
-							% Leerzeichen einfügen und datenfile wieder
-							% abspeichern
+							% This happens sometimes, in particular after
+							% manual editing of the data file. 
+							% work-around to prevent this "error": append
+							% a empty row in excel (with a space character)
+							% and save again
 							data_ends = size(txt,1);
 						end
 						
@@ -3731,6 +3730,8 @@ function result = ChronAlyzer()
 
 	function Sample_Button_Cb(source,data)
 
+		% ToDo: "all/none" functions as intended but throws an error now
+		
 		if sum(cell2mat(get(check_h,'value'))) > 0
 			set(hStart,'Enable','on');
 		else

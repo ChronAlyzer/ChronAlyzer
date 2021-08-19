@@ -11,7 +11,9 @@ The circadian rhythm is of central importance for living organisms and allows th
 Here we present the software ChronAlyzer, which is applicable for the processing and characterization of rhythmic signals. It allows the selection and grouping of technical and biological replicates as well as an interactive and transparent processing of comprehensive datasets. 
 
 ### Work-flow:
-1. Import data files from Plate Readers (xls or csv) - an adaption to different devices might be necessary (please contact me). 2. Check time-series for outliers and use replicate groups. 3. Start analysis for finding these parameter: amplitude, period length, phase-shift and damping (an effect often observed in in-vitro experiments). 
+1. Import data files from Plate Readers (xls or csv) - an adaption to different devices might be necessary (please contact me). 
+2. Check time-series for outliers and use replicate groups. 
+3. Start analysis for finding these parameter: amplitude, period length, phase-shift and damping (an effect often observed in in-vitro experiments). 
 
 ## Provided files and requirements
 

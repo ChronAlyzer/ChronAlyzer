@@ -17,7 +17,7 @@ Here we present the software ChronAlyzer, which is applicable for the processing
 
 You can download the Matlab script files (written in Matlab2017b) or the ready-to-use Win10 executable. This executable does not contain the Matlab runtime library, but you can download it for free at, https://de.mathworks.com/products/compiler/matlab-runtime.html Please carefully select the correct version: R2017b (9.3) !
 
-For installing the Matlab runtime library you need Windows administator rights! Here are more information about installing the runtime library: https://de.mathworks.com/help/compiler_sdk/dotnet/install-the-matlab-runtime.html#bvf6b29
+For installing the Matlab runtime library you'll need Windows administator rights! Here are more information about installing the runtime library: https://de.mathworks.com/help/compiler_sdk/dotnet/install-the-matlab-runtime.html
 
 ## Author
 Norman Violet

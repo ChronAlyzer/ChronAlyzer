@@ -333,6 +333,13 @@ end
 	end
 	
 
+	if ~isempty(strfind(name,'group'))
+		% better naming for replicate groups in figure titles
+		name_ = name(strfind(name,'group'):end);
+	else
+		name_ = name;
+	end
+	
 %% Basislinie finden (Zweite Filterung nach Grundform)
 	
 	% Auf was soll das Fitting angewendet werden?
@@ -413,6 +420,8 @@ end
 			end
 
 			clear a b
+			
+			max_t_filter = max(T); % is used for scaling figures
 
 			if debug
 
@@ -440,8 +449,6 @@ end
 				end
 
 				title(['Debug: Normalisation of data:' newline 'Measurement, moving horizon average (back+forward)' newline 'Result: Measurement - mean(MHA)'])
-
-				max_t_filter = max(T); % wird in nested functions gebraucht, daher -> global
 
 				xlim([0 max_t_filter * 1.15]);
 				t_lim = get(gca,'xlim');
@@ -477,11 +484,11 @@ end
 
 			end % if debug			
 		
-		% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+		% - - option 2 - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 		else		
-
 			% calculate turning points
 			disp('Calculate drift approximation - method 2: Turning Points')		
+			
 			turn			= [];
 			smooth_range	= 18; % ToDo: Should depend on sampling frequency?
 			y_mess_smooth	= smooth(Y,smooth_range,'rloess');
@@ -544,7 +551,6 @@ hold on
 % creates background color gradient to visualize the auto-decreased
 % weighing factor in the objective function
 
-
 		
 		if Options.const_PER
 			% period length is constant, get approximation for phase-shift
@@ -553,6 +559,7 @@ hold on
 			smooth_range	= 24; % ToDo: Should depend on sampling frequency?
 			y_mess_smooth	= smooth(y_mess_korr,smooth_range,'rloess');
 			[iHi,iLo,iCr]	= findextrema(y_mess_smooth);
+			
 			if debug
 				% add plot to last debug figure)
 				hold on
@@ -561,6 +568,7 @@ hold on
 					['backward moving horizon average (' num2str(GleitMW_Zeitfenster) ' [h])'],'mean MHA','Result: Normalized (Output)','Smoothed result (for extreme values)'});
 				
 			end
+			
 			% let user check validity of these extreme values
 			figure('name',strrep(name_,'group: ',''))
 			plot(T,y_mess_smooth,'k','ButtonDownFcn', @extreme_marker_click_Cb);
@@ -569,6 +577,8 @@ hold on
 			hold on
 
 			fill_h = fill([t(1) t(weight_idx) t(weight_idx) t(1)],reshape([get(gca,'ylim');get(gca,'ylim')],1,4),[t(1) t(weight_idx) t(weight_idx) t(1)],'LineStyle','-.');
+disp('the location of the patch is wrong!')
+keyboard
 			colormap('gray')
 			brighten(.7)
 			uistack(fill_h,'down');
@@ -703,12 +713,6 @@ hold on
 	end
 
 	grid
-
-	if ~isempty(strfind(name,'group'))
-		name_ = name(strfind(name,'group'):end);
-	else
-		name_ = name;
-	end
 
 	title([strrep(name_,'- group: ','(') ':' newline 'Adjusted raw data' newline '(by subtracting moving horizon average)'],'Interpreter','none');
 	xlabel('time [h]');

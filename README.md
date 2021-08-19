@@ -25,3 +25,27 @@ For installing the Matlab runtime library you'll need Windows administator right
 Norman Violet
 Bundesinstitut für Risikobewertung
 Berlin, Germany
+
+
+
+## Third-party functions
+This program uses some functions provided by others. These are: asort.m (alphanumeric sort), findextrema (find extreme values, peaks) and pso (particle swarm optimzation), all downloaded from MATLAB Central File Exchange. The authorships are listed here, but documented in more detail in the corresponding source files:
+
+### ASORT
+%(version of 13th December 2006)
+% 
+% downloaded from Mathworks File Exchange February 2017
+% 
+% https://de.mathworks.com/matlabcentral/fileexchange/7212-asort-a-pedestrian-alphanumeric-string-sorter
+
+### FINDEXTREMA
+% Siyi Deng; 05-29-2009;
+% sdeng@uci.edu; UCI HNL;
+% https://de.mathworks.com/matlabcentral/fileexchange/24306-findextrema
+
+### PSO
+% Editor: Yan Ou
+% Date: 2013/10/07
+% orginally published on mathworks central
+% Cite as: 
+% Yan Ou (2013). Particle Swarm Optimization (https://www.mathworks.com/matlabcentral/fileexchange/41708-particle-swarm-optimization), MATLAB Central File Exchange.

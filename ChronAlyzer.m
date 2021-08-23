@@ -1,20 +1,75 @@
 function result = ChronAlyzer()
 
+% This program analyzes time-series data from plate readers with 96-well
+% plates, from experiments regarding the circadian rhythm.
+% It tries to fit a simple mathematical model to the measurements
+% ("curve-fitting") in order to obtain parameter values for:
+% Amplitude, Period length, Phase-shift and Damping (caused by the
+% experimental set-up in in vitro experiments).
+
+% Copyright (c) 2017-2021 Norman Violet     == MIT License ==
+%
+% Permission is hereby granted, free of charge, to any person obtaining a
+% copy of this software and associated documentation files (the
+% "Software"), to deal in the Software without restriction, including
+% without limitation the rights to use, copy, modify, merge, publish,
+% distribute, sublicense, and/or sell copies of the Software, and to permit
+% persons to whom the Software is furnished to do so, subject to the
+% following conditions:
+%
+% The above copyright notice and this permission notice shall be included
+% in all copies or substantial portions of the Software.
+%
+% == DISCLAIMER ==
+%
+% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+% OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+% AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+% ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+% WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+%
+% THE SOFTWARE PACKAGE IS FREELY AVAILABLE AS A COURTESY OF THE DEVELOPER, 
+% BUT HAS NOT BEEN NECESSARILY VALIDATED, REVIEWED OR APPROVED. OTHER SOFTWARE
+% MAY BE EQUALLY USEFUL. THE MAINTENANCE OF THE SOFTWARE IS NOT GUARANTEED
+% BY THE DEVELOPER. 
+%
+% The program was developed during my work at the BfR in 2019-2020
+%
+% Author: Norman Violet
+% E-Mail: norman.violet@bfr.bund.de
+% Bundesinstitut für Risikobewertung (BfR)
+% German Federal Institute for Risk Assessment
+% 10589 Berlin, Germany
+%
+%
+% I used Matlab (Mathworks, 2017a) to script it. 
+
+
+% PROGRAM DESCRIPTION
+% see paper <...> and graphical guide.
+%
+% --------------------------------------------------------------------
+
 % ToDo: For publication:
 %		1. Create and provide sample data file
 %		2. Create and provide sample plate layout file
 %		3. Provide sample quotes.txt
 %		4. Turn jokes options off (automatically for unknown users, but
 %		check again!)
+%		5. Add publication address of paper.
 %
-
 % ToDo: Further ideas
 %	- create heatmaps from deviations to average: Are the differences in cell at the border of the plate greater?
 %	
+%
+% ToDo: Remove ToDos and Notes in the code
+%
+%
 
 %% Variablen-Declaration
 
-	version_str		= 'v0.8.6'; % current version
+	version_str		= 'v0.8.7'; % current version
 
 	monitor			= get(0,'screensize');
 	NoAudio         = false; % option for muting (valid only within this file)
@@ -43,7 +98,6 @@ function result = ChronAlyzer()
 	
 	fname			= []; % File name (Data source)
 	pathname		= []; 
-	%akt_pwd		= pwd; % aktueller Ordner
 	line_h_global	= []; % some more graphics handle
 	file_anz		= 0; % number of data files
 	replikat_mode	= ''; % 
@@ -348,7 +402,10 @@ function result = ChronAlyzer()
 		'- added more time-outs to dialog windows, to enhance "automatic" run of ChronAlyzer (not yet 100%)' CR ...		
 		'- LOTS of minor (and not so minor) improvements to code (e.g. readability) and output.' CR ...
 		'0.8.6' CR ...
-		'- MOVED TO GIT:  https://github.com/ChronAlyzer/ChronAlyzer.git' ...
+		'- MOVED TO GIT:  https://github.com/ChronAlyzer/ChronAlyzer.git' CR ...
+		'0.8.7' CR ...
+		'- error fix when using outliers' CR ...
+		'- changed wording "outliers" -> "remove noisy peaks"' ...
 		];
 	
 	end
@@ -379,12 +436,11 @@ function result = ChronAlyzer()
 	hbestaetigt			= uicontrol('Style','pushbutton','backgroundcolor',[0 1 0],'fontsize',12, ...
 		'String','OK','units','normalized','Position',[.4,.03,.2,.06],'Callback',{@(~,~)myclose(dummy)});
 	
-	i_h			= image(image_data);
+	image(image_data);
 	logo_axes_h = gca;
 	
 	set(logo_axes_h,'units','pixel','position',[86.8 316 495 84],'visible','off');
 	
-	%gruss_text_h	= uicontrol('Style','text','fontsize',9.5,'String',grusstext, 'unit','pixel','position', [10 72 650 235],'BackgroundColor',[1 1 1],'HorizontalAlignment','left');
 	gruss_text_h	= uicontrol('Style','text','fontsize',9.5,'String',grusstext, 'BackgroundColor',[1 1 1],'HorizontalAlignment','left');	
 	figure_position = get(gcf,'pos');
 	
@@ -408,6 +464,7 @@ function result = ChronAlyzer()
 	timed = timer('ExecutionMode','singleShot','StartDelay',10+ceil(numel(grusstext)/20),'TimerFcn',@(~,~)myclose(dummy));
 	start(timed);
 	pause(2) % That's a minimum time the user has to look at the greeting window
+	
 
 %% Select data sources (files)
 	
@@ -505,11 +562,7 @@ function result = ChronAlyzer()
 				
 				case 'No'
 					break
-				% case '(Technische)'
-				% 	replikat_mode = 'tech';
-				% 	msgbox(['Bei technischen Replikaten wird nach dem Einlesen der Daten ein kurzer Datenabgleich durchgeführt, und ' ...
-				% 		'dann ausschließlich mit dem Mittelwert weitergerechnet!'],'','modal')
-				% 	error('Diese Auswahlmöglichkeit ist nicht mehr vorgesehen!')
+
 				case 'Yes'
 					replikat_mode = 'biol';
 					mbox_h = msgbox(['Note: For proper processing of biological replicates, all data files have to be in the same way structured as the first!'],'','modal');
@@ -570,9 +623,11 @@ function result = ChronAlyzer()
 		
 		switch extension
 			
-			case '.txt'
-				% Note: this branch is not developed further and might be
+			case '.txt' % could be used for "*.csv" as well
+				% Note: this case is not developed further and might be
 				% outdated.
+				
+				% modify text layout to your needs
 				
 				messdaten		= importdata(fullfile(pathname{file_idx},fname{file_idx}),'\t',9);
 				result			= true;
@@ -580,7 +635,9 @@ function result = ChronAlyzer()
 				wrong_data_idx = find(isnan(messdaten.data(:,9))); % "wrong data" = incomplete data sets
 				
 				% try to "repair" incomplete data set (so that it can be
-				% used at least)
+				% used at least):
+				% ToDo: add comments on text layout: i.e. what is in column
+				% 4 and 9 ..?
 				for i = 1:numel(wrong_data_idx)
 					% set entry for time
 					if wrong_data_idx(i) > 1
@@ -626,6 +683,9 @@ function result = ChronAlyzer()
 				end
 					
 				if strcmpi(raw{1,1},'lab book')
+					% this error happened regulary, just by selecting the
+					% wrong file. Now, a helpful error message is given to
+					% the user
 					uiwait(msgbox(['Error: The selected file "' fname{file_idx} '" does not appear to be a valid data file!'],'','modal'))
 					error(['The selected file "' fname{file_idx} '" does not appear to be a valid data file!'])
 				end
@@ -664,7 +724,7 @@ function result = ChronAlyzer()
 				
 				if size(txt,1) == 1 % Detect device-dependent text entries
 					
-					% EnvisionDaten 
+					% Device: Envision
 						
 						device_envision	= true;
 						data_starts		= 2;
@@ -679,8 +739,10 @@ function result = ChronAlyzer()
 					
 				else
 					
-					if ~strcmpi(txt{8,2},'synergy neo2')
-						% Mithras
+					% Device: BioTec or Mithras
+					
+					if ~strcmpi(txt{8,2},'synergy neo2') % = Mithras
+						
 						device_mithras	= true;
 						
 						data_starts		= cellstrfind(txt(:,1),'^Time');
@@ -711,8 +773,8 @@ function result = ChronAlyzer()
 
 						data_ends = data_ends-1;
 
-					else
-						% BioTec
+					else % BioTec
+						
 						device_biotek	= true;
 						data_starts		= cellstrfind(txt(:,2),'^Time');
 
@@ -741,16 +803,18 @@ function result = ChronAlyzer()
 					data_ends = size(txt,1);
 				end
 				
+				
+				% Reading measurement time information
 				if file_idx == 1
 					
 					if device_mithras
 						t			= txt(data_starts(1)+1:data_ends(1),1);
-						t			= convert_Time2DecHour(t); % Umrechnung Zeitformat aus Zeichenkette
+						t			= convert_Time2DecHour(t); % Conversion of time from character string
 					elseif device_biotek
-						t			= cell2mat(raw(data_starts+1:data_ends,2)) * 24; % Umrechnung numerisches Zeitformat in Stunden
+						t			= cell2mat(raw(data_starts+1:data_ends,2)) * 24; % Conversion of decimal time into hours
 						t			= t'; % Transponieren
 					elseif device_envision
-						t			= cell2mat(raw(data_starts:data_ends,1)); % Keine Umrechnung notwendig
+						t			= cell2mat(raw(data_starts:data_ends,1)); % No conversion nesessary
 						t			= t'; % Transponieren
 					end
 					
@@ -758,12 +822,12 @@ function result = ChronAlyzer()
 					
 					if device_mithras
 						t_			= txt(data_starts(1)+1:data_ends(1),1);
-						t_			= convert_Time2DecHour(t_); % Umrechnung Zeitformat aus Zeichenkette
+						t_			= convert_Time2DecHour(t_); % Conversion of time from character string
 					elseif device_biotek
-						t_			= cell2mat(raw(data_starts+1:data_ends,2)) * 24; % Umrechnung numerisches Zeitformat in Stunden
+						t_			= cell2mat(raw(data_starts+1:data_ends,2)) * 24; % Conversion of decimal time into hours
 						t_			= t_'; % Transponieren
 					elseif device_envision
-						t_			= cell2mat(raw(data_starts:data_ends,1)); % Keine Umrechnung notwendig
+						t_			= cell2mat(raw(data_starts:data_ends,1)); % No conversion nesessary
 						t_			= t_'; % Transponieren
 					end
 					
@@ -772,13 +836,12 @@ function result = ChronAlyzer()
 						msgbox('Warning: Files contain different amounts of time points! Using only the shortest time series!')
 						
 						if numel(t) > numel(t_)
-							% aktuell geladenes File ist kürzer als zuvor geladene: Die "älteren" also kürzen
+							% the last imported data set is shorter then the first imported! Action: Reduce longer files!
 							mess = mess(:,1:end - abs(diff([numel(t),numel(t_)])),:);
-							t = t_; % Zeitreihe kürzen							
+							t = t_; % shortening
 						else
-							% aktuell geladenes File ist länger als die bisherigen: Aktuelles kürzen
-							% t_ = t; ist aber unnötig
-							data_ends = data_ends - abs(diff([numel(t),numel(t_)])); % Datenende-Vektor entsprechend verschieben
+							% the last imported data set is longerr then the first imported! Action: Reduce longer files!
+							data_ends = data_ends - abs(diff([numel(t),numel(t_)])); % move data_ends value accordingly
 						end
 						
 					end
@@ -796,6 +859,8 @@ function result = ChronAlyzer()
 				
 				biolgr_name = [biolgr_name name];
 
+				% Read measurement values
+				
 				for daten_idx = 1:anz_reads
 
 					if device_mithras
@@ -803,10 +868,9 @@ function result = ChronAlyzer()
                         disp('Mithras data file detected!')
                         
 						mess_{daten_idx}		= cell2mat(raw(data_starts(daten_idx)+1:data_ends(daten_idx),2:end));
-						read_titel(daten_idx)	= raw(data_starts(daten_idx)-1,1); % nur für Multi-Datensatz-Files relevant
-                        
+						read_titel(daten_idx)	= raw(data_starts(daten_idx)-1,1); % only used for files containing multiple data sets
 
-					else % = Biotek- oder Envision-Messdaten
+					else % = Biotek or Envision measurements
 						
                         disp('Biotek or Envision data file detected! (or special case: test data)')
                         
@@ -825,28 +889,29 @@ function result = ChronAlyzer()
 							
 							uiwait(msgbox(['There are OVERFLW values within the imported data! Those will be replaced now by the average ' ...
                                 'of the adjacent values. Please chech the results!'],'','modal'))
-							% Dies sollte, seit bei den Biotec-Daten das erste "Lum"-Datenpaket eingelesen wird, nicht mehr auftreten
+							% This error should not occur any longer. This
+							% happened only, if the second measurement set
+							% in the file was used ("[Lum2]") which was
+							% already modified (amplified) by the device software
 
 							if strcmp(ME.identifier, 'MATLAB:cell2mat:MixedDataTypes')
 
-								dummy	= raw(data_starts(daten_idx)+1:data_ends(daten_idx),4:end); % erstmal alles "roh" einlesen
+								dummy	= raw(data_starts(daten_idx)+1:data_ends(daten_idx),4:end); % 
 								idx		= find(cellfun(@ischar, dummy));
 								
 								for i = 1:numel(idx)
 									
 									if idx(i) == 1 && idx(i+1) ~= 2
-										% wenn der erste Wert in der Liste OVERFLW hat,
-										% kann evtl.der zweite Wert aus der
-										% genommen werden (wenn er nicht
-										% ebenfalls OVERFLW ist)
+										% if only the first entry reads OVERFLW, and the second not, just take the next value
 										dummy(1) = dummy(2);
 									elseif idx(i) == numel(dummy) && idx(i-1) ~= (numel(dummy)-1)
-										% Gleiches Problem, wenn der
-										% letzte Wert fehlt.
+										% ToDo: Same kind of problem if last entry is missing; use second-to-last
 										
 									elseif idx(i) > 1 && idx(i) < numel(dummy)
-										% Wenn die Werte irgendwo
-										% dazwischen liegen ist okay
+										% entry between start and end: Just
+										% calculate the mean (user was
+										% informed about this work-around
+										% above)
 										dummy(idx(i)) = {round(mean([dummy{idx(i)-1},dummy{idx(i)+1}]))};
 									else
 										uiwait(msgbox('There are OVEFLW values at the beginning or the end of the data. Please edit the file before using the ChronAlyzer again.','','modal'))
@@ -855,8 +920,6 @@ function result = ChronAlyzer()
 									
 								end
 								
-								% dummy(find(cellfun(@ischar, dummy)))	=
-								% {99999}; Festwert ist keine gute Idee
 								raw(data_starts(daten_idx)+1:data_ends(daten_idx),4:end) = dummy;
 								mess_{daten_idx} = cell2mat(raw(data_starts(daten_idx)+1:data_ends(daten_idx),4:end));
 
@@ -865,13 +928,14 @@ function result = ChronAlyzer()
 						end % try catch
 						
 						
-						% BioTec-File gibt immer 96 Wells ...:  leere
-						% Well-Einträge löschen
-						% Hinweis: Die Entwicklung fand zunächst ausschließlich für Daten
-						% vom Mithras-Gerät statt. Grundsätzlich günstiger
-						% wäre es gewesen, statt die leeren BioTec-Wells zu
-						% löschen, die Mithras-Daten immer auf eine 96-er
-						% Matrix anzupassen.
+						% BioTec device software always writes 96 wells
+						% into file: Delete unused wells.
+
+						% Note: The developement for ChronAlyzer was for
+						% Mithras device only at the beginning. 
+						% It would have been better to use the BioTec
+						% layout from the beginning. ToDo: Rewrite software
+						% (Always use a complete 96 matrix (8x12) ...)
 						
 						del_idx = [];
                         
@@ -899,11 +963,13 @@ function result = ChronAlyzer()
 							read_titel(daten_idx)			= fname(daten_idx);
 						end
 						
-						% Teste, ob für alle Zeitpunkte auch für alle
-						% Spalten Daten sind (sonst gibt es später beim
-						% Filtern NaN-Ergebnisse, die dann wiederum zu
-						% Fehler in der Optimierung führen
-						% --> Schneide die Zeilen raus ...
+						% Important check: Are there measurement for all
+						% wells for all times? If not, there will be errors
+						% (see below, text in messagebox).
+						% --> workd-around: Cut those entries ...
+						
+						% ToDo: Whole measurement data matrix system must
+						% be reworked.
 						
 						dummy	= any(cell2mat(cellfun(@isnan, mess_,'UniformOutput',false)),2);
 						
@@ -922,13 +988,14 @@ function result = ChronAlyzer()
 					
 				end % schleife über alle Dateien
 
-				if anz_reads > 1 % Wenn in einem Datenfile mehrere Messvorgänge gespeichert sind, dann ist anz_reads > 1
+				if anz_reads > 1 % this variable is > 1 only if there are multiple data sets within one file (only ever noticed with Mithras (I think))
 
 					a = ['1. Datensatz = ' read_titel{1} ' - ' read_titel{2}];
 					b = ['2. Datensatz = ' read_titel{2} ' - ' read_titel{1}];
 
-					% ToDo: Dokumentieren für welchen Anwendungsfall diese
-					% Frage bzw. die folgende Verrechnung relevant ist.
+					% ToDo: Documenation is needed for this question - I
+					% can't remember since we don't use the Mithras device
+					% anymore (since several years)
 					answer = questdlg('Which set of data do you want to modify?','Modification',a, b, a);
 
 					switch answer
@@ -952,9 +1019,9 @@ function result = ChronAlyzer()
 					end
 					
 					
-					% Hier wurde nach technischen Replikaten und
-					% biologischen Replikaten unterschieden.
-					% Weitere Informationen siehe nach Einlesen-Schleifenende
+					% ToDo: Maybe this IF-ELSE-THEN is obselete, I have to check
+					% biological and technical replicates were handled
+					% differently in early versions of ChronAlyzer
 					if strcmp(replikat_mode, 'tech')
 
 						if any(size(mess(:,:,1)) ~= size(mess_))
@@ -1041,77 +1108,20 @@ function result = ChronAlyzer()
 		end % switch (file) extension
 		
 		% Prüfung der Daten
-		if numel(t) < 2 % und selbst das ist schon sehr wenig
-			uiwait(msgbox('The imported files do not contain time series?!','','modal'))
+		if numel(t) < 5 % and this
+			uiwait(msgbox('The imported files do not contain time series or at least too few measurements!','','modal'))
 			error('The imported files do not contain time series?!');
 		end
 		
 	[~,filename,~] = fileparts(fname{1});
 	
-%% --- Annotationen
-	% Jede Analyse sollte mit Dokumentationstexten versehen werden, und mit
-	% Konfigurationsinformationen des ChronAlyzers, damit schnell
-	% verschiedene Optionen ausgetestet werden können.
-
-% 		% Skip annotation with Opera-daten
-% 		
-% 		% if ~strcmp(extension,'.txt'),
-% 
-% 			[~,filename,~] = fileparts(fname{file_idx});
-% 
-% 			annotationtext_file = [filename '_annotation.mat']; % wird für jedes Excel-File separat eingelesen
-% 
-% 			if exist([pfad annotationtext_file],'file'),
-% 
-% 				pfad = pathname{file_idx};
-% 
-% 				try
-% 					annotations{file_idx} = load([pfad annotationtext_file]);
-% 					
-% 					if numel(annotations{1}.Replikatgruppen) == 12, % altes Format
-% 						% file old version updaten
-% 						for i = 13:24,
-% 							annotations{1}.Replikatgruppen{i} = num2str(i);
-% 						end
-% 						save_Annotations(filename, pfad, annotations{file_idx});
-% 					end	
-% 
-% 					if numel(annotations{1}.Replikatgruppen) == 24, % altes Format
-% 						% file old version updaten
-% 						for i = 25:30,
-% 							annotations{1}.Replikatgruppen{i} = num2str(i);
-% 						end
-% 						save_Annotations(filename, pfad, annotations{file_idx});
-% 					end	
-% 
-% 					
-% 				catch ME
-% 					if debug,
-% 						ME.message
-% 						ME.stack
-% 					end
-% 					annotations{file_idx} = Annotation_input(filename,raw(2,2:end), read_titel{daten_idx});
-% 					save_Annotations(filename, pfad, annotations{file_idx});
-% 
-% 				end
-% 				
-% 			else
-% 
-% 				if ~biotek_device,
-% 					if opera_device,
-% 						annotations{file_idx} = Annotation_input(cell2mat(strtrim(extractAfter(messdaten.textdata(4,1),'Name'))),name, 'unknown');
-% 					else
-% 						annotations{file_idx} = Annotation_input(filename,raw(2,2:end), read_titel{daten_idx});
-% 					end
-% 				else
-% 					annotations{file_idx} = Annotation_input(filename,name, read_titel{daten_idx});
-% 				end
-% 
-% 				save_Annotations(filename, pfad, annotations{file_idx});
-% 
-% 			end
-% 			
-% 		% end
+	% ToDo:
+	% check for equidistant measurement times
+	% create a global weighting factor vector, and set the value to zero
+	% when a measurement is missing (or is later declared as a 'noisy peak'
+	% by the user).
+	
+	
 	
 %% Layout einlesen
 
@@ -1141,7 +1151,6 @@ function result = ChronAlyzer()
 					uiwait(msgbox(['For future application, please place the well-layout whether in the same (in a different sheet) or a seperate Excel file:' newline ...
 						'The content of the Excel cells will be used as label for the wells.'],'','modal'))
 
-					%error('Missing Meta-Daten');
 					% create a generic named well-layout
 
 					for wi = 1:8
@@ -1451,18 +1460,15 @@ function result = ChronAlyzer()
 	% eben mitgewachsen.
 	uicontrol('parent',panel,'style','text','units','normalized','position',[.0225 .9650 .05, .008],'string','QuickView','fontsize',8,'tooltip','Click on well button for display');
 	uicontrol('parent',panel,'style','text','units','normalized','position',[.0205 .9575 .16   .008],'string','Well    -    Replicate group','fontsize',9,'tooltip','name of well or group');
-	%uicontrol('parent',panel,'style','text','units','normalized','position',[.075  .9650 .075 .008],'string','Technische','fontsize',9,'tooltip','Name der Replikatgruppe');	
-	%uicontrol('parent',panel,'style','text','units','normalized','position',[.075  .9575 .075 .008],'string','Replikatgruppe','fontsize',9,'tooltip','Name der Replikatgruppe');
 	uicontrol('parent',panel,'style','text','units','normalized','position',[.16   .9575 .075 .008],'string','Amplification','fontsize',9,'tooltip','Amplitude of first peak');
 	uicontrol('parent',panel,'style','text','units','normalized','position',[.2525 .9575 .08  .008],'string','Damping [%]','fontsize',9,'tooltip','Difference from peak to peak (in percent)');
 	uicontrol('parent',panel,'style','text','units','normalized','position',[.3375 .9575 .06  .008],'string','Period [h]','fontsize',9,'tooltip','Period length');
 	uicontrol('parent',panel,'style','text','units','normalized','position',[.4225 .9575 .06  .008],'string','Phase [min]','fontsize',9,'tooltip','Phase-shift at test start');
-	%uicontrol('parent',panel,'style','text','units','normalized','position',[.495 .9575 .075 .008],'string','deltaPer','fontsize',9,'tooltip','experimentell');
 	uicontrol('parent',panel,'style','text','units','normalized','position',[.58   .9575 .075 .008],'string','Basis_Amp','fontsize',9,'tooltip','experimentell');
 	uicontrol('parent',panel,'style','text','units','normalized','position',[.66   .9575 .075 .008],'string','Basis_Dam','fontsize',9,'tooltip','experimentell');
 	uicontrol('parent',panel,'style','text','units','normalized','position',[.74   .9575 .075 .008],'string','Basis_Off','fontsize',9,'tooltip','experimentell');
 	uicontrol('parent',panel,'style','text','units','normalized','position',[.82   .9575 .075 .008],'string','Error','fontsize',9,'tooltip','Fitting error between measurements and model (divided by number of measurement times)');
-	uicontrol('parent',panel,'style','text','units','normalized','position',[.90   .9575 .075 .008],'string','Outlier?','fontsize',9,'tooltip','Has the user marked outliers?');
+	uicontrol('parent',panel,'style','text','units','normalized','position',[.90   .9575 .075 .008],'string','Outlier?','fontsize',9,'tooltip','Has the user marked noisy peaks?');
 	uicontrol('parent',panel,'style','text','units','normalized','position',[.0256 .951  .045 .0055],'string','all/none','fontsize',8);
 	
 	% Sortierung der Wells
@@ -1490,42 +1496,12 @@ function result = ChronAlyzer()
 	set(buttongroup_h1,'visible','off');
 	set(phasen_text_h,'visible','off');
 
-	ausreisser_h	= uicontrol('parent',panel,'Style','checkbox','value',0,'units','normalized','position',[0.23 0.985 0.015 0.01],'tooltip','Open window to select "outlier" time intervalls');
+	ausreisser_h	= uicontrol('parent',panel,'Style','checkbox','value',0,'units','normalized','position',[0.23 0.985 0.015 0.01],'tooltip','Open window to select "noisy peaks"');
 	debug_h			= uicontrol('parent',panel,'Style','checkbox','value',debug,'units','normalized','position',[0.23 0.975 0.015 0.01],'tooltip','Open additional output windows (beware: this is for debugging mainly, it can open too many windows to handle!)');
-	text_ausreiss_h = uicontrol('parent',panel,'style','text','String','Remove outliers ?','units','normalized','position',[.132 .9865 .08 .007],'fontsize',8);		
+	text_ausreiss_h = uicontrol('parent',panel,'style','text','String','Remove noisy peaks ?','units','normalized','position',[.123 .9865 .095 .007],'fontsize',8);		
 	text_debug_h	= uicontrol('parent',panel,'style','text','String','Debug outputs ?', 'units','normalized','position',[.13 .9765 .09 .007],'fontsize',8);		
 	
-	% Default-Werte für die Art der Anpassung
-% 	MWglaett = true;
-% 	Normiert = false;
-% 	e_funkt  = false;
-	
-	% Fitting Methode Buttons
-	% Note: Methode "normalized" and "e-function" are deactivated, because
-	% of their inferior results
-% 	buttongroup_h2 	= uibuttongroup('parent', panel,'Position',[0.255 0.975 .17 .02], 'clipping','on');
-% 	s5	= uicontrol('parent',panel,'Style','Radio','String','MHA','units','normalized', 'tooltip','Using a moving horizon average (MHA) as reference curve', ...
-% 		'pos',[.05 0.15 .3 .4],'parent',buttongroup_h2,'HandleVisibility','off','Callback',@Basisl_option_cb, 'value',0);
-% 	s6	= uicontrol('parent',panel,'Style','Radio','String','Normalized','units','normalized', 'tooltip','Obsolete (war wie "MHA", aber zunächst werden alle Daten auf den ersten Datenpunkt normiert)', ...
-% 		'pos',[.3 0.15 .35 .4],'parent',buttongroup_h2,'HandleVisibility','off','Callback',@Basisl_option_cb, 'value',0,'enable','off');
-% 	s7	= uicontrol('parent',panel,'Style','Radio','String','Exp.func','units','normalized', 'tooltip','Obsolete', ...
-% 		'pos',[.675 0.15 .4 .4],'parent',buttongroup_h2,'HandleVisibility','off','Callback',@Basisl_option_cb, 'value',0,'enable','off');
-% 	text_fittingmode_h = uicontrol('parent', panel,'style','text','String','Fitting Methode','units','normalized','pos',[0.275 0.9875 .12 .0065]);		
-	
 	pos		= 968 + round((mainfig_max-mainfig_min) - 15.7*((1:anz+1)+2));
-
-
-	% default Bezeichnung für Gruppen:
-	%dropdown_str = {' ','Kontrolle','Medium','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','18','19','20','21','22','23','24'}; % default, erster Eintrag muss leer sein!
-	%	dummy = arrayfun(@(x){num2str(x)},(1:nof_replgr)')';
-	%	dropdown_str = {' ','Kontrolle','Medium',dummy{:}}; % default, erster Eintrag muss leer sein!
-
-	% 	% falls Namen vom ersten File vorhanden, nun übernehmen:
-	% 	if ~isempty(annotations) && isfield(annotations{1},'Replikatgruppen') && ~isempty(annotations{1}.Replikatgruppen) && ~isempty(annotations{1}.Replikatgruppen(1))
-	% 		for i = 1:numel(annotations{1}.Replikatgruppen),
-	% 			dropdown_str{i+3} = annotations{1}.Replikatgruppen{i};
-	% 		end
-	% 	end
 
 
 	% Aus Experimentlayout gelesene Daten verwenden
@@ -1585,13 +1561,7 @@ function result = ChronAlyzer()
  		drop_h(i)	= uicontrol('parent',panel,'Style','text','String',str_, 'tooltip','right click on replicate group name to select all wells belonging to this group', ...
  					'units','pixel','Position',[90 pos(i)-7 100 12],'Tag',['check' num2str(i)],'Callback',{@Select_dropbox_Cb},'fontsize',6, 'value',value);
 		set(check_h(i),'UserData',str_);				
-		%extent = get(drop_h(i),'Extent');
-		%ext_x = extent(3);
-		%set(drop_h(i),'Position',[90 pos(i)-7 100 12]);		
-		
-		% drop_h(i)	= uicontrol('parent',panel,'Style','popup','String',dropdown_str, 'tooltip','ordnet dieses Sample einer Replikatgruppe zu', ...
-		% 			'units','pixel','position',[90 0 100 pos(i)+7],'Tag',['check' num2str(i)],'Callback',{@Select_dropbox_Cb},'fontsize',6);
-		
+
 				
 	end
 	
@@ -1608,7 +1578,6 @@ function result = ChronAlyzer()
 	Dam			= NaN(anz,1);
 	Per			= NaN(anz,1);
 	Pha			= NaN(anz,1);
-	%DeltaPer	= NaN(anz,1);
 	Basis_Amp	= NaN(anz,1);
 	Basis_Dam	= NaN(anz,1);
 	Basis_Off	= NaN(anz,1);
@@ -1654,7 +1623,6 @@ function result = ChronAlyzer()
 
 	
 	messdaten_fuer_Neustart = mess;
-	%well_namen_fuer_Neustart = name;
 	
 %% Initialisierung alle GUI-Schaltfläche
 	
@@ -1686,22 +1654,11 @@ function result = ChronAlyzer()
 			s0.Enable		= 'on';
 			s1.Enable		= 'on';
 			hOptions.Visible= 'on';
-			%name			= well_namen_fuer_Neustart;
-			
-% 			for i = 1:anz,
-% 				if strcmp(replikat_mode, 'biol'),
-% 					set(t_h(i),'String',[name{i} ' (x' num2str(anz_rep(i)) ')']);
-% 				else
-% 					set(t_h(i),'String',name{i});
-% 				end
-% 				set(drop_h(i),'value',1);
-% 			end
-			
+		
 			Amp			= NaN(anz,1);
 			Dam			= NaN(anz,1);
 			Per			= NaN(anz,1);
 			Pha			= NaN(anz,1);
-			%DeltaPer	= NaN(anz,1);
 			Basis_Amp	= NaN(anz,1);
 			Basis_Dam	= NaN(anz,1);
 			Basis_Off	= NaN(anz,1);
@@ -1748,10 +1705,8 @@ function result = ChronAlyzer()
 		ausreisser_h.Visible		= 'off';
 		text_ausreiss_h.Visible		= 'off';
 		text_debug_h.Visible		= 'off';		
-		%e_funkt_h.Visible			= 'off';
 		buttongroup_h2.Visible		= 'off';
 		text_fittingmode_h.Visible	= 'off';
-		%e_text_h.Visible			= 'off';
 		hStart.Visible				= 'off';
 		hStop.Visible				= 'off';
 		s0.Enable					= 'off';
@@ -1760,8 +1715,6 @@ function result = ChronAlyzer()
 		sort_text_h.Visible			= 'off';
 		debug_h.Visible				= 'off';
 		hHilfe.Visible				= 'off';
-		%hNeustart.Visible			= 'on';
-		%hNeustart.Visible			= 'off';
 		hSaveR.Visible				= 'off';
 		hLoadR.Visible				= 'off';
 		hOptions.Visible			= 'off';
@@ -1783,7 +1736,7 @@ function result = ChronAlyzer()
 		
 		% ToDo: Currently "Options" and "general_options" are used, only
 		% one of then is really needed!
-		Options.Basislinie		= Basislinienoption;
+		Options.Basislinienoption	= Basislinienoption;
 		Options.ausreisser_flag	= ausreisser;
 		Options.time_weight		= time_weight;
 		Options.log_diff		= log_diff;
@@ -1798,7 +1751,7 @@ function result = ChronAlyzer()
 			% msgbox('Dieser Programm-Zweig mit "Exp-Kurve" wird z.Z. nicht mehr weiter entwickelt');
 		end
 
-%% Zuordnung der Replikatgruppen
+%% Defining of replicate groups
 		
 		% Die Idee war, dass beliebig positionierte Replikate sogar über
 		% mehrere Platten verteilt sein konnten. Das war mit den
@@ -1829,40 +1782,12 @@ function result = ChronAlyzer()
 			% die bedeutung der gruppennamen und position entfiel mit
 			% version 0.8
 
-			%i__ = i;
 			checkbox_replgr(i)	= get(drop_h(i),'value');
-
-			% switch checkbox_replgr(i)
-			% 
-			% 	case 1, 
-			% 		% Well gehört zu keiner Replikatgruppe
-			% 		titel_str{i} = name{i};
-			% 	case 2,
-			% 		titel_str{i} = 'Wells: Kontrollgruppe (Techn. Repl.)';
-			% 	case 3
-			% 		titel_str{i} = 'Wells: Medium (Techn. Repl.)';
-			% 	otherwise
-			% 		%  i = 4--16 als Replikatgruppenindex (12 frei benennbare Gruppen)!!
-			% 		if isfield(annotations{1},'Replikatgruppen') && ~isempty(annotations{1}.Replikatgruppen) && ~isempty(annotations{1}.Replikatgruppen(checkbox_replgr(i)-3))
-			% 			titel_str{i} = ['Wells "' annotations{1}.Replikatgruppen{checkbox_replgr(i)-3} '"'];
-			% 		else
-			% 			titel_str{i} = ['Techn. Replikatgruppe: ' num2str(checkbox_replgr(i)-3)];
-			% 		end
-			% end
 			
 			[col_, row_]	= calc_pos(name{i});
 			str_			= layouttxt{col_,row_};
 			titel_str{i}	= [name{i} ' - ' str_];
-			
-			% Zusatz-Informationen
-			% if isnan(kontroll_idx) && checkbox_replgr(i) == 2,
-			% 	kontroll_idx = i; % wähle erstes Well dieser Gruppe als Repräsentanten aus
-			% end
-			% 
-			% if isnan(medium_idx) && checkbox_replgr(i) == 3,
-			% 	medium_idx = i; % wähle erstes Well dieser Gruppe als Repräsentanten aus
-			% end
-			
+					
 			if isnan(kontroll_idx) && ~isempty(strfind(lower(str_),'ontrol'))
 				% englisch oder deutsch für Kontroll-Gruppe
 				kontroll_idx = i;
@@ -1939,21 +1864,11 @@ function result = ChronAlyzer()
 					
 				end
 
-				replf_h				= figure;
+				replf_h					= figure;
 				set(gcf,'Tag','TechnRg');
-				replf_h.DeleteFcn	= '@my_closereq;';
-				replf_h.NumberTitle = 'off';
-
-				% if replgr_id > 3,
-				% 	replf_h.Name	= ['Techn. Replikatgruppe "' annotations{file_idx}.Replikatgruppen{replgr_id-3} '"'];
-				% elseif replgr_id == 2
-				% 	replf_h.Name	= 'Techn. Replikatgruppe "Kontrolle"';
-				% elseif replgr_id == 3
-				% 	replf_h.Name	= 'Techn. Replikatgruppe "Medium"';
-				% else
-				%replf_h.Name	= name{checkbox_idx};
-				
-				replf_h.Name = ['Replicate group: "' name_gruppen_layout{replgr_id} '"'];				
+				replf_h.DeleteFcn		= '@my_closereq;';
+				replf_h.NumberTitle		= 'off';		
+				replf_h.Name			= ['Replicate group: "' name_gruppen_layout{replgr_id} '"'];				
 				
 				% end
 				replf_h.Name		= [replf_h.Name ' - ' num2str(file_idx) '. plate ("' fname{file_idx} '")'];
@@ -2338,21 +2253,6 @@ function result = ChronAlyzer()
 					
 		end
 		
-		%tmp = findall(0,'UserData','Annotation');
-		%close(tmp); --- sollen doch nicht verschwinden
-		
-%		kontroll_idx	= NaN;
-%		medium_idx		= NaN;
-% 		for i = 1:anz   % Durchlaufe alle Wells
-% 			% Zusatz-Informationen aktualisieren
-% 			if isnan(kontroll_idx) && checkbox_replgr(i) == 2
-% 				kontroll_idx = i; % wähle erstes noch immer aktives Well dieser Gruppe als Repräsentanten aus
-% 			end
-% 
-% 			if isnan(medium_idx) && checkbox_replgr(i) == 3
-% 				medium_idx = i; % wähle erstes noch immer aktives Well dieser Gruppe als Repräsentanten aus
-% 			end
-% 		end
 		
 %% Aufruf des Unterprogramms zur Anpassung (Optimierung)
         
@@ -2433,24 +2333,6 @@ function result = ChronAlyzer()
 				
 				for i = idx_upper
 					
-					% switch checkbox_replgr(i)
-					% 	case 1
-					% 		% empty
-					% 		sample_name = name{i};
-					% 	case 2
-					% 		% Kontrolle
-					% 		sample_name = 'Techn. Replikatgruppe "Kontrolle"';
-					% 	case 3
-					% 		sample_name = 'Techn. Replikatgruppe "Medium"';
-					% 	otherwise
-					% 		if ~isnan(checkbox_replgr(i)),
-					% 			sample_name = ['Gruppe "' annotations{1}.Replikatgruppen{checkbox_replgr(i)-3} '" / "' name{i}  '"'];
-					% 		else
-					% 			% NaN auch gleich empty?
-					% 			sample_name = '';
-					% 		end
-					% end
-					
 					[col_, row_] = calc_pos(name{i});
 					akt_gruppe_str = layouttxt{col_,row_};
 					
@@ -2527,30 +2409,7 @@ function result = ChronAlyzer()
 						%DeltaPer(i,file_idx)	= fit_param.DeltaPer;
 						Fehler(i,file_idx)		= fit_param.Fehler;
 					
-					
-					
-% 					% Ab hier Replikate anders auswerten
-% 					if ~iscell(fit_param), % ( == strcmp(replikat_mode,'biol') )
-% 						
-% 						Amp(i,1)		= fit_param.Amp;
-% 						Dam(i,1)		= fit_param.Dam;
-% 						Per(i,1)		= fit_param.Per;
-% 						Pha(i,1)		= fit_param.Pha;
-% 						
-% 						%DeltaPer(i,1)	= fit_param.DeltaPer;
-% 						Fehler(i,1)		= fit_param.Fehler;
-% 						
-% 					else
-% 						
-% 						Amp(i,1)		= mean(cell2mat([cellfun(@(c) c.Amp,		fit_param, 'UniformOutput', 0)]));
-% 						Dam(i,1)		= mean(cell2mat([cellfun(@(c) c.Dam,		fit_param, 'UniformOutput', 0)]));
-% 						Per(i,1)		= mean(cell2mat([cellfun(@(c) c.Per,		fit_param, 'UniformOutput', 0)]));
-% 						Pha(i,1)		= mean(cell2mat([cellfun(@(c) c.Pha,		fit_param, 'UniformOutput', 0)]));
-% 						%DeltaPer(i,1)	= mean(cell2mat([cellfun(@(c) c.DeltaPer,	fit_param, 'UniformOutput', 0)]));
-% 						Fehler(i,1)		= mean(cell2mat([cellfun(@(c) c.Fehler,		fit_param, 'UniformOutput', 0)]));
-% 						
-% 					end
-					
+
 					% There is somewhere an error above; upper_idx contains a
 					% different number of the well of the same group as
 					% medium_idx oder kontrol_idx. ... here's the
@@ -2682,77 +2541,8 @@ function result = ChronAlyzer()
 						
 					% ---------------------------------------------------------------------	
 
-
 					
-% 					if ~iscell(fit_param), % ( == strcmp(replikat_mode,'tech') oder einzeln )
-
-% 						if exist('tab_amp_h','var') && numel(tab_amp_h) >= i && (exist('tab_amp_h(i,1)','var') && strcmp(get(tab_amp_h(i,1),'type'),'uicontrol')),
-% 							set(tab_amp_h(i,1), 'String',num2str(fit_param.Amp,'%+05.0f')); % num2str(nof_wells * fit_param.Amp,'%+05.0f')
-% 						else
-% 							tab_amp_h(i,1) = uicontrol('parent', panel,'Style','text','units','pixel', 'position',[spalten_pos(1) s_pos(i)-8 75 15],'String',num2str(fit_param.Amp,'%05.0f'), ...
-% 								'HorizontalAlignment', 'left', 'tag','table_entry');
-% 						end
-%                         
-% 						if exist('tab_dam_h','var') && numel(tab_dam_h) >= i && (exist('tab_dam_h(i,1)','var') && strcmp(get(tab_dam_h(i,1),'type'),'uicontrol')),
-% 							set(tab_dam_h(i,1), 'String',num2str(fit_param.Dam,'%03.1f %%'));
-% 						else
-% 							tab_dam_h(i,1) = uicontrol('parent', panel,'Style','text','units','pixel', 'position',[spalten_pos(2) s_pos(i)-8 75 15],'String',num2str(fit_param.Dam,'%03.1f %%'), ...
-% 							 'HorizontalAlignment', 'left','tag','table_entry'); % num2str(nof_wells * fit_param.Pha,'%+06.1f')
-% 						end
-						
-% 						uicontrol('parent', panel,'Style','text','units','pixel', 'position',[spalten_pos(3) s_pos(i)-8 75 15],'String',num2str(fit_param.Per,'%0.2f'), 'tag','table_entry');
-% 						
-% 						if exist('tab_pha_h','var') && numel(tab_pha_h) >= i && (exist('tab_pha_h(i,1)','var') && strcmp(get(tab_pha_h(i,1),'type'),'uicontrol')),
-% 							set(tab_pha_h(i,1), 'String',num2str(fit_param.Pha,'%+06.1f')); % num2str(nof_wells * fit_param.Pha,'%+06.1f')
-% 						else
-%                             tab_pha_h(i,1) = uicontrol('parent', panel,'Style','text','units','pixel', 'position',[spalten_pos(4) s_pos(i)-8 75 15],'String',num2str(fit_param.Pha,'%+06.1f'), ...
-% 								 'HorizontalAlignment', 'left','tag','table_entry'); % num2str(nof_wells * fit_param.Pha,'%+06.1f')
-% 						end
-
-% 					else % ( == strcmp(replikat_mode,'biol') )
-						
-% 						tmp		= cell2mat([cellfun(@(c) c.Amp, fit_param, 'UniformOutput', 0)]);
-% 						tmpstr	= [char(963) '=' num2str(std(tmp), '%05.0f')];
-% 						if ~(strcmp(replikat_mode,'biol') && file_idx > 1),
-%                             tab_amp_h = uicontrol('parent', panel,'Style','text','units','pixel', 'position',[spalten_pos(1) s_pos(i)-8 85 15],'String',[num2str(mean(tmp),'%05.0f') '  ' tmpstr ], ...
-% 								'HorizontalAlignment', 'left', 'tag','table_entry');
-% 						else
-% 							tab_amp_h.String = [num2str(mean(tmp),'%05.0f') '  ' tmpstr ];
-% 						end
-							
-% 						tmp		= cell2mat([cellfun(@(c) c.Dam, fit_param, 'UniformOutput', 0)]);
-% 						tmpstr	= [char(963) '=' num2str(std(tmp), '%0.3f')];
-% 						if ~(strcmp(replikat_mode,'biol') && file_idx > 1),						
-%                             tab_dam_h = uicontrol('parent', panel,'Style','text','units','pixel', 'position',[spalten_pos(2) s_pos(i)-8 85 15],'String',[num2str(mean(tmp),'%03.1f %%') '  '  tmpstr], ...
-% 								 'HorizontalAlignment', 'left','tag','table_entry');
-% 						else
-% 							tab_dam_h.String = [num2str(mean(tmp),'%0.3f') '  ' tmpstr ];							
-% 						end
-
-% 						tmp = cell2mat([cellfun(@(c) c.Per, fit_param, 'UniformOutput', 0)]);
-% 						tmpstr = [char(963) '=' num2str(std(tmp), '%0.2f')];
-% 						if ~(strcmp(replikat_mode,'biol') && file_idx > 1),
-%                             uicontrol('parent', panel,'Style','text','units','pixel', 'position',[spalten_pos(3) s_pos(i)-8 75 15],'String',[num2str(mean(tmp),'%0.2f') '  '  tmpstr], ...
-% 								 'HorizontalAlignment', 'left','tag','table_entry');
-% 						else
-% 							dummy			= findall(0,'type','uicontrol','tag','table_entry','Position',[spalten_pos(3) s_pos(i)-8 85 15]);
-% 							dummy.String	= [num2str(mean(tmp),'%0.2f') '  ' tmpstr ];
-% 						end
-% 
-% 						tmp = cell2mat([cellfun(@(c) c.Pha, fit_param, 'UniformOutput', 0)]);	% Umrechnung in Minuten .... nof_wells * cell2mat
-% 						tmpstr = [char(963) '=' num2str(std(tmp), '%6.1f')];
-% 						if ~(strcmp(replikat_mode,'biol') && file_idx > 1),
-%                             tab_pha_h(i,1) = uicontrol('parent', panel,'Style','text','units','pixel', 'position',[spalten_pos(4) s_pos(i)-8 75 15],'String',[num2str(mean(tmp),'%+06.1f') '  '  tmpstr], ...
-% 								 'HorizontalAlignment', 'left','tag','table_entry');
-% 						else
-% 							dummy			= findall(0,'type','uicontrol','tag','table_entry','Position',[spalten_pos(4) s_pos(i)-8 85 15]);
-% 							dummy.String	= [num2str(mean(tmp),'%+6.1f') '  ' tmpstr ];
-% 						end
-
-% 					end
-
-					
-% ---------------------------------------------------------------------					
+					% ---------------------------------------------------------------------					
 					
 					
 					% Fehler
@@ -2781,43 +2571,8 @@ function result = ChronAlyzer()
 						set(tab_err_h(i,1),'foregroundcolor',[0 0.8 0]);
 					end
 					
-% 					if fit_param.Fehler > 2,
-% 						uicontrol('parent', panel,'Style','text','units','pixel' ,'foregroundcolor',[1 0 0], 'position',[spalten_pos(9) s_pos(i)-8 75 15],'String',num2str(fit_param.Fehler,'%5.1f'), 'tag','table_entry');
-% 					elseif fit_param.Fehler > 1,
-% 						uicontrol('parent', panel,'Style','text','units','pixel', 'foregroundcolor',[1 .6 0.1], 'position',[spalten_pos(9) s_pos(i)-8 75 15],'String',num2str(fit_param.Fehler,'%5.1f'), 'tag','table_entry');                            
-% 					elseif fit_param.Fehler > 0.80,
-% 						uicontrol('parent', panel,'Style','text','units','pixel', 'foregroundcolor',[0 0 1], 'position',[spalten_pos(9) s_pos(i)-8 75 15],'String',num2str(fit_param.Fehler,'%5.1f'), 'tag','table_entry');
-% 					else
-% 						uicontrol('parent', panel,'Style','text','units','pixel', 'foregroundcolor',[0 .8 0], 'position',[spalten_pos(9) s_pos(i)-8 75 15],'String',num2str(fit_param.Fehler,'%5.1f'), 'tag','table_entry');
-% 					end
 
 % ---------------------------------------------------------------------					
-
-% 					if ~iscell(fit_param), % ( == strcmp(replikat_mode,'tech') oder einzeln )
-% 
-% 						% if e_funkt,
-% 						if Basislinienoption == 1, % = e_funktion
-%                             uicontrol('parent', panel,'Style','text','units','pixel', 'position',[spalten_pos(6) s_pos(i)-8 75 15],'String',num2str(fit_param.Basis_Amp,'%0.1f'), 'tag','table_entry');
-%                             uicontrol('parent', panel,'Style','text','units','pixel', 'position',[spalten_pos(7) s_pos(i)-8 75 15],'String',num2str(fit_param.Basis_Dam,'%0.3f'), 'tag','table_entry');
-%                             uicontrol('parent', panel,'Style','text','units','pixel', 'position',[spalten_pos(8) s_pos(i)-8 75 15],'String',num2str(fit_param.Basis_Off,'%0.4f'), 'tag','table_entry');
-% 						end
-% 
-% 						
-% 						
-% 						if fit_param.Fehler > 2,
-%                             uicontrol('parent', panel,'Style','text','units','pixel' ,'foregroundcolor',[1 0 0], 'position',[spalten_pos(9) s_pos(i)-8 75 15],'String',num2str(fit_param.Fehler,'%5.1f'), 'tag','table_entry');
-% 						elseif fit_param.Fehler > 1,
-%                             uicontrol('parent', panel,'Style','text','units','pixel', 'foregroundcolor',[1 .6 0.1], 'position',[spalten_pos(9) s_pos(i)-8 75 15],'String',num2str(fit_param.Fehler,'%5.1f'), 'tag','table_entry');                            
-% 						elseif fit_param.Fehler > 0.80,
-%                             uicontrol('parent', panel,'Style','text','units','pixel', 'foregroundcolor',[0 0 1], 'position',[spalten_pos(9) s_pos(i)-8 75 15],'String',num2str(fit_param.Fehler,'%5.1f'), 'tag','table_entry');
-% 						else
-%                             uicontrol('parent', panel,'Style','text','units','pixel', 'foregroundcolor',[0 .8 0], 'position',[spalten_pos(9) s_pos(i)-8 75 15],'String',num2str(fit_param.Fehler,'%5.1f'), 'tag','table_entry');
-% 						end
-% 
-% 					else
-% 						% ToDo: Falls die Daten für e-Funktion und der Fehler noch ausgegeben werden sollen ....
-% 
-% 					end
 
 					ausreisser_liste(i) = {Options.ausreisser_liste};
 
@@ -2848,18 +2603,6 @@ function result = ChronAlyzer()
 				% Children(2) ist die Legende (in der oberen Grafik)
 				% Children(1) ist die zweite, untere Grafik -> RawData (oder Mittelwert)
 				
-%                 if idx(i).Children(3).YLim(2) > maxy_upperfig
-%     				maxy_upperfig = idx(i).Children(3).YLim(2);
-% 				end
-% 				if idx(i).Children(3).YLim(1) < miny_upperfig
-%     				miny_upperfig = idx(i).Children(3).YLim(1);
-% 				end
-%                 if idx(i).Children(1).YLim(2) > maxy_lowerfig
-%     				maxy_lowerfig = idx(i).Children(1).YLim(2);
-%                 end
-%                 if idx(i).Children(1).YLim(1) < miny_lowerfig
-%     				miny_lowerfig = idx(i).Children(1).YLim(1);
-%                 end
 				% output reduces; children(2) is single axis object now
                 if idx(i).Children(2).YLim(2) > maxy_upperfig
     				maxy_upperfig = idx(i).Children(2).YLim(2);
@@ -2879,18 +2622,10 @@ function result = ChronAlyzer()
 		
 		for i = 1:numel(idx)
             try
-%                 idx_upper				= [idx_upper, idx(i).Children(3)];
-%                 idx_upper(end).YLim(2)	= maxy_upperfig;
-%                 idx_upper(end).YLim(1)	= miny_upperfig;				
-%                 idx_lower				= [idx_lower, idx(i).Children(1)];
-% 				idx_lower(end).YLim(2)	= maxy_lowerfig;				
-%                 idx_lower(end).YLim(1)	= miny_lowerfig;				
                 idx_upper				= [idx_upper, idx(i).Children(2)];
                 idx_upper(end).YLim(2)	= maxy_upperfig;
                 idx_upper(end).YLim(1)	= miny_upperfig;				
-%                 idx_lower					= [idx_lower, idx(i).Children(2)];
-% 				  idx_lower(end).YLim(2)	= maxy_lowerfig;				
-%                 idx_lower(end).YLim(1)	= miny_lowerfig;				
+	
 				
 			catch ME
 				rethrow 
@@ -2906,9 +2641,6 @@ function result = ChronAlyzer()
 
                 uicontrol(idx(i),'Style','edit','max',1,'units','pixel', 'position',[5 400 35 15],'String',num2str(maxy_upperfig), 'Tag','max','Callback',{@Update_Scale_Cb,idx_upper(i)});
                 uicontrol(idx(i),'Style','edit','max',1,'units','pixel', 'position',[5 180 35 15],'String',num2str(miny_upperfig), 'Tag','min','Callback',{@Update_Scale_Cb,idx_upper(i)});                
-				
-%                 uicontrol(idx(i),'Style','edit','max',1,'units','pixel', 'position',[5 145 35 15],'String',num2str(maxy_lowerfig), 'Tag','max','Callback',{@Update_Scale_Cb,idx_lower(i)});
-%                 uicontrol(idx(i),'Style','edit','max',1,'units','pixel', 'position',[5  40 35 15],'String',num2str(miny_lowerfig), 'Tag','min','Callback',{@Update_Scale_Cb,idx_lower(i)});	
             catch ME
 				rethrow ME
             end
@@ -3029,39 +2761,6 @@ function result = ChronAlyzer()
 
 %% Kurze statistische Auswertung
 
-% 		pos_analyse = pos(end)/(mainfig_max-mainfig_min)*.985;
-% 
-% 		if exist('stat_h','var'),
-% 			delete(stat_h)
-% 		end
-% 
-% 		stat = calc_stat(checkbox_idx,Amp,Dam,Per,Pha); %, DeltaPer); % nof_wells*Pha
-% 		
-% 		zahlenformat = {'%05.0f', '%0.3f', '%0.2f h', '%+6.1f min', '%05.1f'};
-% 		
-% 		stat_h(1) = uicontrol('parent', panel,'style','text','units','normalized','position',[0.11 ,.949, .06, .008],'string',['Std-Abw ' char(963) ' ='],'fontsize',9);
-% 		
-% 		stat_h(2) = uicontrol('parent', panel,'style','text','units','normalized','position',[0.17 ,.949, .05, .008],'string',num2str(stat(1),zahlenformat{1}),'fontsize',9);
-% 		
-% 		stat_h(3) = uicontrol('parent', panel,'style','text','units','normalized','position',[0.25 ,.949, .05, .008],'string',num2str(stat(2),zahlenformat{2}),'fontsize',9);
-% 		
-% 		stat_h(4) = uicontrol('parent', panel,'style','text','units','normalized','position',[0.33 ,.949, .05, .008],'string',num2str(stat(3),zahlenformat{3}),'fontsize',9);
-% 		
-% 		stat_h(5) = uicontrol('parent', panel,'style','text','units','normalized','position',[0.42 ,.949, .05, .008],'string',num2str(stat(4),zahlenformat{4}),'fontsize',9);
-% 		
-% 		%stat_h(6) = text(0.6, pos_analyse,num2str(stat(5),zahlenformat{5}),'Color',[.6 .6 .6]); % DeltaPer
-% 
-% 		
-% 		% if e_funkt,
-% 		if Basislinienoption == 1, % = e_funktion
-% 			stat_e					= calc_stat_e(checkbox_idx,Basis_Amp,Basis_Dam,Basis_Off);
-% 			zahlenformat([7 8 9])	= {'%0.1f', '%0.3f', '%0.4f'};
-% 			stat_h(7) = uicontrol('parent', panel,'style','text','units','normalized','position',[0.565 ,.949, .05, .008],'string',num2str(stat_e(1),zahlenformat{6}),'fontsize',9);
-% 			stat_h(8) = uicontrol('parent', panel,'style','text','units','normalized','position',[0.65 ,.949, .05, .008],'string',num2str(stat_e(2),zahlenformat{7}),'fontsize',9);
-% 			stat_h(9) = uicontrol('parent', panel,'style','text','units','normalized','position',[0.72 ,.949, .05, .008],'string',num2str(stat_e(3),zahlenformat{8}),'fontsize',9);
-% 		end
-
-
 		hSaveTab.Visible		= 'on';
 		hSaveTab.Enable			= 'on';	
 		hEnde.Enable			= 'on';
@@ -3087,59 +2786,17 @@ function result = ChronAlyzer()
 	
 		old_checkbox_idx = checkbox_idx;
 		figure(tabelle_fig_h); % call GUI to front view
+
 		while ~(Ende || Neustart)
+			
 			pause(0.1)
+			
 			if ~ishandle(tabelle_fig_h) % Hauptfenster wurde geschlossen
 				Ende = true;
 				return
 			end
-			
-% 			checkbox_akt = find(cell2mat(get(check_h,'value')));
-% 			
-% 			if (numel(old_checkbox_idx) ~= numel(checkbox_akt)) || any(old_checkbox_idx ~= checkbox_akt)
-% 				%update Statistik
-% 				
-% 				stat = calc_stat(checkbox_akt,Amp,Dam,Per,Pha); % , DeltaPer); % nof_wells*Pha
-% 				
-% 				for i = 1:numel(stat),
-% 					set(stat_h(i+1),'String',num2str(stat(i),zahlenformat{i}));
-% 				end
-% 				
-% 				if Basislinienoption == 1, % = e_funktion
-% 					
-% 					stat_e = calc_stat_e(checkbox_akt,Basis_Amp,Basis_Dam,Basis_Off);
-% 					
-% 					for i = 1:3,
-% 						set(stat_h(6+i),'String',num2str(stat_e(i),zahlenformat{5+i}));
-% 					end
-% 					
-% 				end
-% 				
-% 				old_checkbox_idx = checkbox_akt;
-% 				
-% 			end
-				
+
 		end
-
-		% if Ende,
-		% 	set(hNeustart,'visible','off');
-		% 	set(hEnde,'visible','off');
-		% 	break
-		% end
-
-		% verschoben in Neustart-Routine
-		% for j = 1:anz,
-		% 	check_h(j).Enable	= 'on';
-		% 	drop_h(j).Enable	= 'on';
-		% 	t_h(j).Enable		= 'on';		
-		% end
-		% % Neustart vorbereiten
-		% hSave.Visible			= 'off';
-		% hSave.Enable			= 'off';	
-		% hEnde.Enable			= 'off';
-		% hNeustart.Enable		= 'off';
-		% buttongroup_h1.Visible	= 'off';
-		% phasen_text_h.Visible	= 'off';
 		
 		if exist('joke_h') && ishandle(joke_h),
             delete(joke_h)
@@ -3354,7 +3011,7 @@ function result = ChronAlyzer()
 			LogDifference		= Options.log_diff;
 			Fade_In				= general_options.weight_threshhold_time;
 			
-			switch Options.Basislinie
+			switch Basislinienoption
 				case 1
 					FittingMethod = {'exp. function'};
 				case 10

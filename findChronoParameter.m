@@ -1,15 +1,60 @@
 function [fit_param,Status,Options] = findChronoParameter(t,y_mess,name,repl_mittelwert,Options_in)
+% This program is part of the ChronAlyzer. For more details and license
+% information, please look there.
+%
+% Copyright (c) 2017-2021 Norman Violet     == MIT License ==
+%
+%
+% ----------------------------------------------------------------------
+% INPUT:
+% t:				time vector of measurement
+% y_mess:			measurement vector
+% name:				name of replicate group (or well)
+% repl_mittelwert:	(not used)
+% Options_in:		Options passed to this sub-function
+%
+% OUTPUT:
+% fit_param:		optimal model parameter set (curve-fitting)
+% Status:			TRUE if interrupted by user, otherwise FALSE
+% Options:			Actual used options, can be passed to another run
+%
+% ----------------------------------------------------------------------
+%
+% ToDo: 
+%
+% ToDo: complete the translation to English, add more comments
+% ToDo: remove figure menu / toolbar from figures
+% ----------------------------------------------------------------------
+%
+% Note: Actually, there are two effects which cause the peaks to be tilted: The
+% overall trend and the damping of the amplitude also!
+%
+% ----------------------------------------------------------------------
+%
+% Note: "disp" command outputs are not for users without Matlab: They don't
+% have that output window!
+%
+% ----------------------------------------------------------------------
 
-% nicht eigenständig ohne Parameter aufrufen
+
+
+%% INIT
+
+
+% I am lazy and sometimes I just start the wrong file, so here's my
+% work-around:
 if nargin == 0
 	ChronAlyzer
 	return
 end
 
+
+% A previous program run, which was aborted or interrupted can leave figures
+% open. Figures with "working..." in it, can't be closed so easily, because
+% their close-function was deactivated. So, look for these figures and
+% close them ...
+
 search_old_figs = findall(0, 'tag','working');
-% In this "working" figure so close-function was deactivated: If program
-% aborted because of an error, the figure can't be closed. So close old
-% figure here, if any
 if ~isempty(search_old_figs)
 	for i = 1:numel(search_old_figs)
 		try
@@ -21,62 +66,102 @@ if ~isempty(search_old_figs)
 	end
 end
 
-%% Variablen-Deklaration
-% "globale' Variablen für die nested function
 
-	old_style	= false; % alte Glättungsmethode
-	fun_h		= @kurve;
-	debug		= Options_in.debug;
-	max_h_Start = 36;		% Für die GUI (xlim), Auswertung von 0 bis max_h_Start 
-	Stop		= false;
-	OK			= false;
-	Change		= false;
-	max_t_filter= [];
-	Y			= [];
-	T			= [];
-	t_sim					= []; % für die Optimierung
-	y_sim					= []; % für die Optimierung
-	Dam_sign				= 0; % sign of damping (positiv means amplitude of data is increasing)
-	pso_show_flag			= false; % Display off (or lower frequently updates) when PSO is running
-	plot_h2					= [];
+%% Declaration of Variables
+
+	
+	Stop			= false;
+	OK				= false;
+	% Change		= false;
 	
 	
+	% fun_h			= @kurve; % handle to model function
 	
-    if audiodevinfo(0) < 1 || Options_in.NoSound
-        NoSound = true;
-    else
-        NoSound = false;
-    end
+	max_t_filter	= [];
+	Y				= [];
+	T				= [];
+	t_sim			= []; % for optimization
+	y_sim			= []; % for optimization
+	plot_h2			= []; % handle to plot
 	
+	Dam_sign		= 0; % sign of damping (positiv means amplitude of data is increasing)
+	pso_show_flag	= false; % Display off (or lower frequently updates) when PSO is running
+	max_h_Start		= 36;		% Für die GUI (xlim), Auswertung von 0 bis max_h_Start 
+		
+	
+	% read "Options_in" struct
+	if isfield(Options_in,'Debug')
+		debug						= OPTS.Debug;
+	else
+		debug						= false;
+	end
 	if isfield(Options_in,'start_at')
-		start_at	= Options_in.start_at;
-		end_at		= Options_in.end_at;
+		start_at					= Options_in.start_at;
+	else
+		start_at					= t(1); % should be zero
+	end
+	if isfield(Options_in,'end_at')
+		end_at						= Options_in.end_at;
+	else
+		end_at						= t(end);
+	end
+	
+	if isfield(Options_in,'ausreisser_flag')
+		Options.ausreisser_flag		= Options_in.ausreisser_flag;
+	else
+		Options.ausreisser_flag		= true;
+	end
+	if isfield(Options_in,'Basislinienoption')
+		Options.Basislinienoption	= Options_in.Basislinienoption;
+	else
+		Options.Basislinienoption	= 100;
 	end
 
-	if ~isempty(Options_in) 
-		ausreisser_flag					= Options_in.ausreisser_flag;
-		Options.ausreisser_flag			= ausreisser_flag;
-		Basislinienoption				= Options_in.Basislinie;
-		Options.Basislinie				= Basislinienoption; %für die Ausgabewerte
-		Options.time_weight				= Options_in.time_weight;
-		Options.log_diff				= Options_in.log_diff;
-		Options.debug					= Options_in.debug;
-        Options.const_PER				= Options_in.const_PER;
-        Options.const_value				= Options_in.const_value;
-        Options.NoSound					= Options_in.NoSound;
-		Options.weight_threshhold_time	= Options_in.weight_threshhold_time;	
+	if isfield(Options_in,'time_weight')
+		Options.time_weight			= Options_in.time_weight;
 	else
-		ausreisser_flag			= true;
-		%e_funkt_flag			= true;
-		Basislinienoption		= 100; % = MWglaett
-		Options.weight_threshhold_time = 12;
-		warning('This event should not be triggered, please contact author (''code 69'')');
+		keyboard
+		Options.time_weight			= 1;
+	end
+
+	if isfield(Options_in,'log_diff')
+		Options.log_diff			= Options_in.log_diff;
+	else
+		Options.log_diff			= false;
+	end
+
+	if isfield(Options_in,'const_PER')
+		Options.const_PER			= Options_in.const_PER;
+	else
+		keyboard
+		Options.const_PER			= true;
+	end
+	if isfield(Options_in,'const_value')
+		Options.const_value			= Options_in.const_value;
+	else
+		keyboard
+		Options.const_value			= 24;
+	end
+	if isfield(Options_in,'weight_threshhold_time')
+		Options.weight_threshhold_time		= Options_in.weight_threshhold_time;
+	else
+		Options.weight_threshhold_time		= 12;
+	end
+	if (isfield(Options_in,'NoSound') && Options_in.NoSound) || audiodevinfo(0) < 1
+		NoSound						= true;
+	else
+		NoSound						= false;
+	end
+	
+	% find first time index with "full" weighting factor (after fade-in)
+	weight_idx						= find(t >= Options.weight_threshhold_time,1,'first');
+
+	Options.ausreisser_liste		= [];
 		
-	end 
     
-	weight_idx				= find(t >= Options.weight_threshhold_time,1,'first');    
-		
-    if ~NoSound
+%% ------------------------------------
+	
+	if ~NoSound
         try
             [Y, FS]		= audioread('calibrationlockeddiagnosticunderway.mp3');
             sound_obj	= audioplayer(Y,FS);
@@ -87,11 +172,12 @@ end
             Y			= [];
             FS			= [];
         end
-    end
+	end
 	
+	% create additional icons for menubar
 	try
-		toolbar_icon1 = imread('delete_raw_icon.tif'); % Rückgabe ist Integer
-		toolbar_icon1 = double(toolbar_icon1(:,:,1:3))./255; % benötigt wird Wertebereich 0-1
+		toolbar_icon1 = imread('delete_raw_icon.tif'); % return values are integer
+		toolbar_icon1 = double(toolbar_icon1(:,:,1:3))./255; % but needed are values 0..1
 	catch
 		toolbar_icon1 = ones(16,16,3);
 		for i = 1:16
@@ -99,9 +185,10 @@ end
 			toolbar_icon1(17-i,i,:) = 0;
 		end
 	end
+	
 	try
-		toolbar_icon2 = imread('limited_range_icon.tif'); % Rückgabe ist Integer
-		toolbar_icon2 = double(toolbar_icon2(:,:,1:3))./255; % benötigt wird Wertebereich 0-1
+		toolbar_icon2 = imread('limited_range_icon.tif'); % return values are integer
+		toolbar_icon2 = double(toolbar_icon2(:,:,1:3))./255; % but needed are values 0..1
 	catch
 		toolbar_icon2 = ones(16,16,3);
 		for i = 2:15
@@ -115,9 +202,10 @@ end
 		
 	end
 
-	Options.ausreisser_liste = [];
 	
-%% Ausreißer manuell markieren und Daten entsprechend manipulieren
+	
+	
+%% Manually mark and remove noisy peaks
 
 	figaus_h	= findobj(0,'Tag','Basis');
 
@@ -145,17 +233,17 @@ end
 	set(gca,'xTick',0:6:floor(t_lim(2)/6)*6,'xticklabels',arrayfun(@num2str,[0:6:floor(t_lim(2)/6)*6],'UniformOutput',false));
 	grid
 
-	if ausreisser_flag
+	if Options.ausreisser_flag
 		
-		disp('Marking of outliers')
-		
-		title('Mark and ignore outliers');	
+		disp('Marking of noisy peaks')
+		plot_h.Marker = '.';
+		title('Mark and ignore noisy peaks');	
 
 		hOK		= uicontrol('Style','pushbutton','backgroundcolor',[0 1 0], ...
 			'String','Erledigt','Position',[1150,525,70,25],'Callback',{@OK_Button_Cb});
-		hRemove = uicontrol('Style','pushbutton', 'tooltip',sprintf(['Select time periods in which data will be presumed to be outliers\n' ...
+		hRemove = uicontrol('Style','pushbutton', 'tooltip',sprintf(['Select time periods in which data will be presumed to be noisy peaks\n' ...
 			'and won''t be used. (Note: The gap will be visually ''filled'' by a line.)']), ...
-			'String','Mark outliers','Position',[20,525,140,25],'Callback',{@Remove_Button_Cb},'backgroundcolor',[1 .2 .2]);
+			'String','Mark noisy peaks','Position',[20,525,140,25],'Callback',{@Remove_Button_Cb},'backgroundcolor',[1 .2 .2]);
 
 		while ~OK && ishandle(plot_h)
 			% Solange Grafik da und nicht auf OK gedrückt
@@ -166,11 +254,12 @@ end
 		set(hRemove,'enable','off','visible','off');
 		delete(hOK)
 		delete(hRemove)
+		plot_h.Marker = 'none';
 
 	else
-		disp('User doesn''t want/need to mark outliers')
 		
-		title('User Selection: No need to mark outliers')
+		disp('User doesn''t want/need to mark noisy peaks')
+		title('User Selection: No need to remove noisy peaks') % this title will be replaced before user can see it
 		Options.ausreisser_liste = [];
 
 	end
@@ -344,7 +433,7 @@ end
 	
 	% Auf was soll das Fitting angewendet werden?
 	
-	if Basislinienoption == 1 % Method "e-Funktion"
+	if Options.Basislinienoption == 1 % Method "e-Funktion"
 
 		% THIS BRANCH WON'T BE DEVELOPED FURTHER
 		X0_Basis 	= [Y(1), 0.02, 0]; %, 1000]; % Start, Damping, Offset P1
@@ -388,7 +477,7 @@ end
 		if true % ToDo: create option to switch between both methods
 			disp('Calculate drift approximation - method 1: Moving Horizon Average')
 
-			if Basislinienoption == 10 % Methode: Normiert
+			if Options.Basislinienoption == 10 % Methode: Normiert
 				% alle Messdaten werden zunächst auf den ersten Datenpunkt (der gewählten) Range normiert
 				% da ydata schon verkürzt wurde, sind idx nicht mehr notwendig
 				y_mess_korr	= y_gefiltert ./ y_gefiltert(1);
@@ -413,9 +502,9 @@ end
 			y_baseline2 = y_baseline2(end:-1:1);		
 			y_symaverage	= .5 .* (y_baseline1 + y_baseline2); % -> symmetrischer Mittelwert
 
-			if Basislinienoption == 10 % Methode: Normiert		
+			if Options.Basislinienoption == 10 % Methode: Normiert		
 				y_mess_korr	= y_mess_korr - y_symaverage;
-			else % Basislinienoption == 100 % Methode: Mittelwert
+			else % Options.Basislinienoption == 100 % Methode: Mittelwert
 				y_mess_korr	= y_mess_korr - y_symaverage;
 			end
 
@@ -427,7 +516,7 @@ end
 
 				figure
 
-				if Basislinienoption == 10 % Methode: Normiert
+				if Options.Basislinienoption == 10 % Methode: Normiert
 
 					plot(T,y_mess_korr)
 					hold on
@@ -436,7 +525,7 @@ end
 					legend({'Smoothed (Input)','','Normalized (Output)',['moving horizon average (' num2str(GleitMW_Zeitfenster) ' [h])'], ...
 						'MW (Forward)','MW (Backward)'});
 
-				else % Basislinienoption == 100 % Methode: Mittelwert
+				else % Options.Basislinienoption == 100 % Methode: Mittelwert
 
 					%plot(xdata,ydata,'b:');
 					plot(T,Y,'b-');
@@ -576,9 +665,8 @@ hold on
 			grid
 			hold on
 
-			fill_h = fill([t(1) t(weight_idx) t(weight_idx) t(1)],reshape([get(gca,'ylim');get(gca,'ylim')],1,4),[t(1) t(weight_idx) t(weight_idx) t(1)],'LineStyle','-.');
-disp('the location of the patch is wrong!')
-keyboard
+			fill_h = fill([t(1) t(weight_idx) t(weight_idx) t(1)]+start_at,reshape([get(gca,'ylim');get(gca,'ylim')],1,4),[t(1) t(weight_idx) t(weight_idx) t(1)],'LineStyle','-.');
+
 			colormap('gray')
 			brighten(.7)
 			uistack(fill_h,'down');
@@ -591,7 +679,8 @@ keyboard
 			for i = 1:numel(iLo)
 				extremes_h(i) = plot(T(iLo(i)),y_mess_smooth(iLo(i)),'b*','ButtonDownFcn', @extreme_marker_click_Cb);
 			end
-
+disp('die Grafik sind nach Müll aus, sobald ein outlier markiert wird, liegt das an dem nicht mehr äquidistanten T?')
+keyboard
 			xlim([0 max_t_filter * 1.15]);
 			t_lim = get(gca,'xlim');
 
@@ -1012,7 +1101,7 @@ keyboard
 			plot_h	= plot(gca(fig_h),t_sim,y_sim,'b','tag','sim');
 			plot_h2 = plot(t_show,y_show,'b--');
 			
-			if Basislinienoption == 10 % = normiert
+			if Options.Basislinienoption == 10 % = normiert
 				ylim([-1.5 1.5]);
 			end
 			
@@ -1188,10 +1277,10 @@ keyboard
 
 		old_title = get(gca,'title');
 		old_title = old_title.String;
-		title(['Click on lower (left) border for the next (' num2str(numel(Options.ausreisser_liste)/2+1) '.) outlier data range!']);
+		title(['Click on left border of peak for the next (' num2str(numel(Options.ausreisser_liste)/2+1) '.) removal!']);
 		
 		[x1,~]						= ginput(1);
-		title('Click on upper (right) border for this outlier data range!');
+		title('Now, click on right border of this peak!');
 		[x2,~]						= ginput(1);
 		
 		x = [x1 x2];
@@ -1202,7 +1291,16 @@ keyboard
 		
 		Options.ausreisser_liste	= [Options.ausreisser_liste,x];
 		x							= sort(x);
+		% ToDo: peak removal was done by removing measurements completely
+		% This raises problems somewhere in the code. so a solution could
+		% be to replace the measurements by a linear line between left and
+		% right side of the chosen interval. But ...
+		% ToDo: ... this solution is not good! There might be time-series
+		% with missing time-points all from the beginning! Such a case must
+		% be dealt with, too!
+		
 		del_idx						= find(t > x(1) & t < x(2));
+		
 		t(del_idx)					= [];
 		y_mess(del_idx)				= [];
 		set(plot_h,'xdata',t,'ydata',y_mess);
@@ -1213,7 +1311,7 @@ keyboard
 		
 		SliderValue			= round(2*get(source, 'Value'))/2;
 		WindowSizeStunden	= SliderValue;
-		Change				= true;
+		% Change				= true;
 		
 		set(hSlider,'value',SliderValue);
 		set(hText_akt,'String',['Current: ' num2str(WindowSizeStunden) ' h']);

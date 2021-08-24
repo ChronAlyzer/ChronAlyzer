@@ -44,40 +44,53 @@ function result = ChronAlyzer()
 %
 %
 % I used Matlab (Mathworks, 2017a) to script it. 
-
-
+%
+%
 % PROGRAM DESCRIPTION
 % see paper <...> and graphical guide.
 %
+%----------------------------------------------------------------------
+% INPUT:
+%
+% OUTPUT:
+% result:		Returns status from subfunction (not yet really useful)	
+%
 % --------------------------------------------------------------------
-
+%
 % ToDo: For publication:
 %		1. Create and provide sample data file
 %		2. Create and provide sample plate layout file
 %		3. Provide sample quotes.txt
 %		4. Turn jokes options off (automatically for unknown users, but
-%		check again!)
+%			check again!)
 %		5. Add publication address of paper.
+%		6. Remove other user names (if not in paper)
 %
 % ToDo: Further ideas
 %	- create heatmaps from deviations to average: Are the differences in cell at the border of the plate greater?
 %	
 %
 % ToDo: Remove ToDos and Notes in the code
-%
+% ToDo: Check everything for plates other than 96-well plates
 %
 
-%% Variablen-Declaration
+%% Variables initialization
 
 	version_str		= 'v0.8.7'; % current version
-
+	
 	monitor			= get(0,'screensize');
-	NoAudio         = false; % option for muting (valid only within this file)
+	NoAudio         = false; 
+	if audiodevinfo(0) < 1 || NoAudio
+		% check if sound is possible at all
+        NoSound = true;
+    else
+        NoSound = false;
+	end
 	
 	CR				= newline;
-	version_user	= 'v0.0.0'; % initialitation, it will be recorded which version the user already knows (saved in user settings)
+	version_user	= 'v0.0.0'; % initialitation, it will be loaded which version the user already knows (saved in user settings)
 	pfad			= ''; % path - saved in user settings
-	general_options	= struct('TimeWeight',false,'LogDiff',false,'ConstParameterPER',true, 'ConstParValue', 24, 'weight_threshhold_time',12); % options - saved in user settings
+
 	annotations		= '';
 	check_range		= 0;
 	OK				= false;
@@ -94,25 +107,30 @@ function result = ChronAlyzer()
 	medium_idx		= NaN;
 	well_annotation = false; % obsolete, was: only if TRUE well annotation were asked for
 	s_idx			= [];
-	nof_replgr		= 30;
+	nof_replgr		= 1; % at least one must be there for analyze 
 	
 	fname			= []; % File name (Data source)
 	pathname		= []; 
 	line_h_global	= []; % some more graphics handle
 	file_anz		= 0; % number of data files
-	replikat_mode	= ''; % 
+	replicate_mode	= ''; % This indicates if biological replicates (multiple plates) are used
 	biolgr_name		= '';
-    nof_wells       = 96; % ToDo: number of wells, actually should do with other formats also, but not tested. 
+	
+	general_options	= struct('TimeWeight',false,'LogDiff',false,'ConstParameterPER',true, 'ConstParValue', 24, 'weight_threshhold_time',12); % options - saved in user settings	
+    nof_wells       = 96; % ToDo: number of wells -  actually other plate format should work also, but not tested yet. 
 	datum_str		= strrep(char(datetime('now')),':','_');  % Date, used for file export
 	
 	% User-Optionen (default values) - will be asked for in program
-	time_weight		= false; % Sollen zeitlich frühere Werte etwas mehr gewichtet werden?
-	log_diff		= false; % Soll die Differenz zwischen Sim und Daten im Gütefunktional logarithmiert werden?
-    const_PER       = true; % Soll bei der Optimierung die Periodendauer konstant gehalten werden ...
-    const_value		= 24; % default value for constant period length
+	time_weight		= false; % Forcing more weight on measurements in the beginning of the time-series?
+	log_diff		= false; % Using the log difference in the calculation of the "error" difference in curve-fitting?
+    const_PER       = true; % Period length OR phase-shift must be kept constant, which one?
+    const_value		= 24; % default value for constant period length (should be modified below if "const_PER" is FALSE of course)
 	
 	% for annotation - obsolete
-	config			= []; % obsolete too?
+	config			= []; % obsolete too
+	% Note: there are "Load_Replgr" and "Save_Replgr" which could be re-used
+	% for modification of the replicate groups later on, but this
+	% functionality is given also in the layout excel file.
 	
 	% (measurement) device-depending file format options (this is important
 	% for the order of the information/wells within the files)
@@ -124,13 +142,9 @@ function result = ChronAlyzer()
 	joke_done		= true; % jokes on/off (this will be turned off for unknown users)
 	debug			= false; % mainly for programmer (but can be changed on main GUI)
 	
-    if audiodevinfo(0) < 1 || NoAudio
-        NoSound = true;
-    else
-        NoSound = false;
-    end
-	
-	%allow_Annoation_edit = false; % Schalter, bei TRUE: Öffnet GUI zur Eingabe von Annotations.
+
+	%allow_Annoation_edit = false; % flag, if TRUE: Open GUI for annotation
+	%interface - obsolete now!
 	
 	% Import icon images for additional menu options
 	try
@@ -164,7 +178,7 @@ function result = ChronAlyzer()
 	close(idx);
 	idx = [];
 		
-%% Greetings with version info and quote of the day
+%% Greetings with version info and Quote of the Day
 	
 	% Get (windows) user name: for welcome greeting and for later file exports
 	username = lower(getenv('username'));
@@ -189,14 +203,31 @@ function result = ChronAlyzer()
             joke_done	= true; % for not known user always off :-)
 	end
 
+	
+%% Loading user settings	
+	
 	% Get information about user directory, this is the place to store the
 	% recently used version
 	get_user_settings(); % Fills global variables "version_user" and "pfad". They stay empty if no information was found in user directory
 
-	grusstext = '';
+	
+%% changes.text	
+	
+	greetingtext = '';
+	
 	if old_version || debug % user knows running version already? (Then don't show older version info)
+		% Note: "Debug" will be set by ordinary user later in the main GUI,
+		% so this works here only for pre-defined users (see above)
 
-		grusstext = [ ...
+		% Note: Sorry, but I don't think that I need to translate all the
+		% old changes. English starts from v0.8.3
+		
+		% ToDo: Outsource this file and functionality, so a user can always
+		% have a look into a "changes.txt" file also, independent from the
+		% greetings window at program start. But keep actual version in
+		% this file here (see above in declaration section)
+		
+		greetingtext = [ ...
 		'Last Changes:' CR ...
 		'0.2.1' CR ...
 		' - Direktes Einlesen der XLS-Dateien' CR ...
@@ -405,18 +436,19 @@ function result = ChronAlyzer()
 		'- MOVED TO GIT:  https://github.com/ChronAlyzer/ChronAlyzer.git' CR ...
 		'0.8.7' CR ...
 		'- error fix when using outliers' CR ...
-		'- changed wording "outliers" -> "remove noisy peaks"' ...
+		'- changed wording "outliers" -> "remove noisy peaks"' CR ...
+		'- added and translated more comments' ...
 		];
 	
 	end
-	
 
 	% Shorten text cell in order to show only recent changes
-	idx_txt		= strfind(grusstext,version_user(2:end));
+	idx_txt		= strfind(greetingtext,version_user(2:end));
 	important	= ['Note: The current version of this program needs identical time points in all data files' newline ...
 		'if biological or technical replicates are to be processed!'];
 	
 %% Greetings (closes automatically after time)
+
 	% quote of the day
 	try
 		quotes_str	= quotes;
@@ -425,8 +457,8 @@ function result = ChronAlyzer()
 	end
 	quotes_str	= regexprep(quotes_str(1:end-1),'"(\s*- )','"\n\n');
 	
-	grusstext	= ['Hello ' username '!' CR  CR 'You have started ChronAlyzer version ' version_str CR important CR repmat('-',1,85) ...
-		CR CR CR  grusstext(idx_txt:end) CR repmat('-',1,85) CR CR quotes_str ];
+	greetingtext	= ['Hello ' username '!' CR  CR 'You have started ChronAlyzer version ' version_str CR important CR repmat('-',1,85) ...
+		CR CR CR  greetingtext(idx_txt:end) CR repmat('-',1,85) CR CR quotes_str ];
 	
 	% Output of complete greeting text
 	
@@ -441,7 +473,7 @@ function result = ChronAlyzer()
 	
 	set(logo_axes_h,'units','pixel','position',[86.8 316 495 84],'visible','off');
 	
-	gruss_text_h	= uicontrol('Style','text','fontsize',9.5,'String',grusstext, 'BackgroundColor',[1 1 1],'HorizontalAlignment','left');	
+	gruss_text_h	= uicontrol('Style','text','fontsize',9.5,'String',greetingtext, 'BackgroundColor',[1 1 1],'HorizontalAlignment','left');	
 	figure_position = get(gcf,'pos');
 	
 	% check for quote size and adapt windows if too small
@@ -461,14 +493,17 @@ function result = ChronAlyzer()
 	drawnow
 	
 	% Starts timer and call closerequest of greetings window after 
-	timed = timer('ExecutionMode','singleShot','StartDelay',10+ceil(numel(grusstext)/20),'TimerFcn',@(~,~)myclose(dummy));
+	timed = timer('ExecutionMode','singleShot','StartDelay',10+ceil(numel(greetingtext)/20),'TimerFcn',@(~,~)myclose(dummy)); % creates timer object
 	start(timed);
 	pause(2) % That's a minimum time the user has to look at the greeting window
 	
 
 %% Select data sources (files)
 	
-	% First, check last used file path (stored in user directory if used before)
+	% Load all file names into "fname" and the respective paths to those files in
+	% "pathname"
+
+	% First, check last used file path (stored in user settings if one was saved before)
 	if ~isempty(pfad)
 		system_dependent('DirChangeHandleWarn','Never');  % If this command misses, Matlab issues a strange warning. Reset to default later on
 		try
@@ -482,6 +517,7 @@ function result = ChronAlyzer()
 	
 	% List all files and let user select from these
 	i = 1;
+	
 	while true % loop until user cancels selection of further files to import
         
         if i > 1
@@ -489,7 +525,7 @@ function result = ChronAlyzer()
 		end
         
 		if i == 1
-			[fname{i}, pathname{i}] = uigetfile( {'*.xls*','Mithras / Biotec / Envision result files (xls xlsx)';'*.txt', 'Opera Phenix export file (txt)'}, ...
+			[fname{1}, pathname{1}] = uigetfile( {'*.xls*','Mithras / Biotec / Envision result files (xls xlsx)';'*.txt', 'Opera Phenix export file (txt)'}, ...
 				[num2str(i) '. Select data file or cancel'],'Select first data file or cancel');
 			i = i + 1;
 		else
@@ -503,8 +539,7 @@ function result = ChronAlyzer()
 
 			else % user selected multiple files at once
 				
-				% ToDo: check if this branch still properly works further on
-				% (obviously it is not possible to select more files after)
+				% ToDo: check if this branch still properly works further on (obviously it is not possible to select more files after)
 				pathname_ = pathname{i};
 				
 				for j = 1:numel(fname_)
@@ -524,6 +559,7 @@ function result = ChronAlyzer()
 		end
 		
 		if isempty(fname{i-1}) || isscalar(fname{i-1})
+			% remove empty or invalid file selections
 			fname		= fname(1:end-1);
 			pathname	= pathname(1:end-1);
 			break
@@ -532,12 +568,13 @@ function result = ChronAlyzer()
 		clear fname_
 
 		% Update user settings (last used (=actual running) version and file path for file selection)
-		set_user_settings(pathname{end}); % der letzte aktuelle Pfad wird für zukünftige Zwecke abgespeichert
+		set_user_settings(pathname{end}); 
+		
 		cd(pathname{end})
 		
 		if numel(fname) == 1
 		
-			f_all = findall(0,'Type','figure');
+			f_all	= findall(0,'Type','figure');
 			timer_h = timer('TimerFcn',{@closeit f_all}, 'StartDelay', 4);
 			start(timer_h)
 
@@ -553,7 +590,6 @@ function result = ChronAlyzer()
 				answer = 'No'; % default value
 			end			
 				
-
 			if isempty(answer)
 				answer = 'No';
 			end
@@ -564,9 +600,9 @@ function result = ChronAlyzer()
 					break
 
 				case 'Yes'
-					replikat_mode = 'biol';
+					replicate_mode = 'biol';
 					mbox_h = msgbox(['Note: For proper processing of biological replicates, all data files have to be in the same way structured as the first!'],'','modal');
-					% Schließt Fenster nach einer bestimmten Zeit automatisch
+					% auto time-out for dialog window:
 					timed =  timer('ExecutionMode','singleShot','StartDelay',2,'TimerFcn',@(~,~)myclose(mbox_h));
 					start(timed);
 			end
@@ -577,17 +613,16 @@ function result = ChronAlyzer()
 
 
 	% -------------------
-	if isempty(fname) % was file selection aborted by closing selection windows ("red cross")? Then abort complete program 
+	if isempty(fname) % was file selection aborted by closing selection windows (clicking on the "red cross")? Then abort complete program 
 		return
 	end
 	% -------------------
 
-	%cd(akt_pwd) % back to previous working directory
-
 	system_dependent('DirChangeHandleWarn','Once'); % Reset to default; see comment above (search for "system_dependent")
 
 	file_anz = numel(fname); % number of selected file
-
+	
+	
     if ~NoSound
         try
             [Y, FS]			= audioread('diagnosticcomplete_ep.mp3');
@@ -603,29 +638,36 @@ function result = ChronAlyzer()
 
 
 	if numel(file_anz) > 1
-		uiwait(msgbox(['Important Notice! There is currently NO CHECK for consistent time point values in all selected data files!'],'','modal'))
+		uiwait(msgbox(['Important notice! There is currently NO CHECK for consistent time point values in all selected data files!'],'','modal'))
 	end
 	
 	
-%% Now import data from selected files
+%% Now, import data from selected files
+
+	% ===================================================================================
+	% The following variables are created/filled here, they're important
+	% (this info is hopefully useful for general understanding and developing new device adaptions)
+	%
+	% Outcome (after completing): 
+	% "t"	:	contains a vector of measuring times (valid for all measurements!)
+	% "mess":	this is a 3D-matrix; 1-dim well number (so length == 96); 2-dim: entries for all measurements (so length == length(t)); 
+	%				3-dim: number of files loaded
+	% "name":	cell matrix with strings, containing names of wells ("A01" ,...")	
+	% ===================================================================================
 
 	for file_idx = 1:file_anz
-
+		
 		[~,~,extension] = fileparts(fname{file_idx});
-
-		% information to expected format of data; how it will be used further on
-		% (This is hopefully useful for developing new device adaptions)
-		% t		: row vector containing decimal hours (1 hour 30 min --> 1.5)
-		% mess	: measurement vector, one entry per row
-		% name	: cell row vector with strings, containing names of wells (annotations)
-
-		% Data sources are not always formatted in this way, imported data has to be re-formatted accordingly.
+		
+		
+		% Data sources are not always formatted in this way, imported data
+		% has to be re-formatted accordingly (or a new import filter must
+		% be coded).
 		
 		switch extension
 			
 			case '.txt' % could be used for "*.csv" as well
-				% Note: this case is not developed further and might be
-				% outdated.
+				% Note: this case is not developed further and might be outdated.
 				
 				% modify text layout to your needs
 				
@@ -634,10 +676,8 @@ function result = ChronAlyzer()
 				
 				wrong_data_idx = find(isnan(messdaten.data(:,9))); % "wrong data" = incomplete data sets
 				
-				% try to "repair" incomplete data set (so that it can be
-				% used at least):
-				% ToDo: add comments on text layout: i.e. what is in column
-				% 4 and 9 ..?
+				% try to "repair" incomplete data set (so that it can be used at least):
+				% ToDo: add comments on text layout: i.e. what is in column 4 and 9 ..?
 				for i = 1:numel(wrong_data_idx)
 					% set entry for time
 					if wrong_data_idx(i) > 1
@@ -648,15 +688,14 @@ function result = ChronAlyzer()
 						end
 					end
 				end
-				% set measurement value to zero (because it was invalid
-				% somehow)
-				messdaten.data(wrong_data_idx,5) = 0; % Datensignal auf null setzen
+				% set measurement value to zero (because it was invalid somehow)
+				messdaten.data(wrong_data_idx,5) = 0; % set measurement value to zero
 				
 				t								= messdaten.data(:,9)'./3600;
 				t								= zeitrunden(t);
 				mess							= messdaten.data(:,5);
 				mess							= mess';
-
+				
 				first_measurement_idx			= find(messdaten.data(:,4) == 0); % MessInfo sometimes empty
 				rows							= messdaten.data(first_measurement_idx,[1:2]);
 				
@@ -681,11 +720,9 @@ function result = ChronAlyzer()
 					uiwait(msgbox('Note: If this notice occurs in connection with an Excel read error, the most possible reason for this are the access rights within Excel (security center)!','','modal'))
 					rethrow(ME);
 				end
-					
+				
 				if strcmpi(raw{1,1},'lab book')
-					% this error happened regulary, just by selecting the
-					% wrong file. Now, a helpful error message is given to
-					% the user
+					% this error happened regulary, just by selecting the wrong file. Now, a helpful error message is given to the user
 					uiwait(msgbox(['Error: The selected file "' fname{file_idx} '" does not appear to be a valid data file!'],'','modal'))
 					error(['The selected file "' fname{file_idx} '" does not appear to be a valid data file!'])
 				end
@@ -697,45 +734,44 @@ function result = ChronAlyzer()
 				end
 				
 				
-				anz_reads = numel(cellstrfind(txt(:,1),'^Time')); % Wieviele Datensätze sind in diesem File enthalten?
+				anz_reads = numel(cellstrfind(txt(:,1),'^Time')); % How many data sets are found in the actual file (was only important for Mithras device)
 				
+				% We use now the Envision device, this does not use the keyword "Time", but instead this:
 				if anz_reads == 0
 					anz_reads = numel(cellstrfind(txt(:,1),'^t \[h\]')); % Für Envision-Files: Wieviele Datensätze sind in diesem File enthalten?
 				end
 				
-
+				
 				% Note:
-				% -- Mithras and Envision devices use the word "Time" only once; in the
-				% column before the time-series data. Detect Envision by
-				% finding the key word "Synergy Neo2". This should be
-				% modified for different devices.
-				% -- BioTec uses "Times" twice; the first in the meta data
-				% header, the second in the second column before the
-				% measurement data
+				% -- Mithras and Envision devices use the word "Time" only once; in the column before the time-series data. Detect Envision by
+				% finding the key word "Synergy Neo2". This should be modified for different devices.
+				% -- BioTec uses "Times" twice; the first in the meta data header, the second in the second column before the measurement data
 				
 				
 				if anz_reads > 1 && file_anz > 1
 					error('The current version of this program cannot process biological replicates and data files containing multi-channel data at the same time!')
 				end
-
+				
 				if anz_reads > 2
 					error('Somehow this program encounters unexpected data structures, perhaps an update is needed (please contact author, code:"Channel anz_read > 2")');
 				end
 				
+				% ------ Actual reading of file content starts here -------------------
+				
 				if size(txt,1) == 1 % Detect device-dependent text entries
 					
 					% Device: Envision
-						
-						device_envision	= true;
-						data_starts		= 2;
-						data_ends		= size(raw,1);
-						
-						if isempty(raw{data_ends,1})
-							error('Error reading XLSX file, perhaps caused by empty rows at the end?')
-						end
-						if ~isnumeric(raw{data_starts,1})
-							error('Error reading XLSX file, perhaps additional rows in front of expected data?')
-						end
+					
+					device_envision	= true;
+					data_starts		= 2;
+					data_ends		= size(raw,1);
+					
+					if isempty(raw{data_ends,1})
+						error('Error reading XLSX file, perhaps caused by empty rows at the end?')
+					end
+					if ~isnumeric(raw{data_starts,1})
+						error('Error reading XLSX file, perhaps additional rows in front of expected data?')
+					end
 					
 				else
 					
@@ -749,11 +785,8 @@ function result = ChronAlyzer()
 						data_ends		= cellstrfind(txt(:,1),'','exact');
 						
 						if isempty(data_ends)
-							% This happens sometimes, in particular after
-							% manual editing of the data file. 
-							% work-around to prevent this "error": append
-							% a empty row in excel (with a space character)
-							% and save again
+							% This happens sometimes, in particular after manual editing of the data file.
+							% work-around to prevent this "error": append a empty row in excel (with a space character) and save again
 							data_ends = size(txt,1);
 						end
 						
@@ -765,36 +798,34 @@ function result = ChronAlyzer()
 						catch ME
 							uiwait(msgbox(['The selected file "' fname{file_idx} '" does not appear to be a valid data file!'],'','modal'))
 						end
-
-
+						
 						if numel(data_ends) > 1
 							data_ends = data_ends(1);
 						end
-
+						
 						data_ends = data_ends-1;
-
+						
 					else % BioTec
 						
 						device_biotek	= true;
 						data_starts		= cellstrfind(txt(:,2),'^Time');
-
+						
 						if numel(data_starts) > 1
-							data_starts = data_starts(1); % Der Eintrag "Lum" ist der wesentliche (der zweite wird durch eine elektr. Verstärkung bestimmt).
-							% Dann erledigen sich vermutlich auch die allermeisten "OVERFLW"-Einträge :-)
+							data_starts = data_starts(1); % The first entry is important (coded as "[Lum]"), the values in the second one ("[Lum2]") were amplified.
+							% By using the first section there should be much less "OVERFLW" entries
 						end
-
+						
 						dummy		= cellfun(@isnan,raw(:,2),'uniformoutput',false); % "NaN" == leere Excel-Zellen?
 						data_ends	= find([cellfun(@any,dummy(data_starts+1:end,1))] == 1,1,'first') + data_starts -1;
-
+						
 						if numel(data_ends) > 1
 							msgbox('Too many entries for time points found, perhaps multi-channel data file or manually edited file?! Please check result!')
 						end
-
-						data_ends = data_ends - numel(find(cell2mat(raw(data_starts+2:data_ends,2))==0)); 
-						% Am Ende der Seite von Biotec-Daten stehen Zeilen mit Zeiteinträgen "00:00:00" ohne Messdaten
-						% Manchmal ist die Messung abgebrochen worden, dann ist
-						% die letzte Datenzeile nicht vollständig gefüllt.
-
+						
+						data_ends = data_ends - numel(find(cell2mat(raw(data_starts+2:data_ends,2))==0));
+						% Note: Boiotec data sheets sometimes contain rows with "00:00:00" times, but otherwise empty.
+						% This happens when the measurement is interupted manually at the device.
+						
 					end
 					
 				end
@@ -803,6 +834,7 @@ function result = ChronAlyzer()
 					data_ends = size(txt,1);
 				end
 				
+				% ------ Importing of file text content starts here ----------------------
 				
 				% Reading measurement time information
 				if file_idx == 1
@@ -858,29 +890,29 @@ function result = ChronAlyzer()
 				end
 				
 				biolgr_name = [biolgr_name name];
-
+				
 				% Read measurement values
 				
 				for daten_idx = 1:anz_reads
-
+					
 					if device_mithras
-
-                        disp('Mithras data file detected!')
-                        
+						
+						disp('Mithras data file detected!')
+						
 						mess_{daten_idx}		= cell2mat(raw(data_starts(daten_idx)+1:data_ends(daten_idx),2:end));
 						read_titel(daten_idx)	= raw(data_starts(daten_idx)-1,1); % only used for files containing multiple data sets
-
+						
 					else % = Biotek or Envision measurements
 						
-                        disp('Biotek or Envision data file detected! (or special case: test data)')
-                        
+						disp('Biotek or Envision data file detected! (or special case: test data)')
+						
 						try
 							if device_biotek
 								mess_{daten_idx} 	= cell2mat(raw(data_starts(daten_idx)+1:data_ends(daten_idx),4:end));
 							elseif device_envision
 								mess_{daten_idx} 	= cell2mat(raw(data_starts(daten_idx):data_ends(daten_idx),3:end));
 							end
-
+							
 						catch ME
 							
 							if device_envision
@@ -888,15 +920,13 @@ function result = ChronAlyzer()
 							end
 							
 							uiwait(msgbox(['There are OVERFLW values within the imported data! Those will be replaced now by the average ' ...
-                                'of the adjacent values. Please chech the results!'],'','modal'))
-							% This error should not occur any longer. This
-							% happened only, if the second measurement set
-							% in the file was used ("[Lum2]") which was
-							% already modified (amplified) by the device software
-
+								'of the adjacent values. Please chech the results!'],'','modal'))
+							% This error should not occur any longer. This happened only, if the second measurement set
+							% in the file was used ("[Lum2]") which was already modified (amplified) by the device software
+							
 							if strcmp(ME.identifier, 'MATLAB:cell2mat:MixedDataTypes')
-
-								dummy	= raw(data_starts(daten_idx)+1:data_ends(daten_idx),4:end); % 
+								
+								dummy	= raw(data_starts(daten_idx)+1:data_ends(daten_idx),4:end); %
 								idx		= find(cellfun(@ischar, dummy));
 								
 								for i = 1:numel(idx)
@@ -908,10 +938,8 @@ function result = ChronAlyzer()
 										% ToDo: Same kind of problem if last entry is missing; use second-to-last
 										
 									elseif idx(i) > 1 && idx(i) < numel(dummy)
-										% entry between start and end: Just
-										% calculate the mean (user was
-										% informed about this work-around
-										% above)
+										% entry between start and end: Just calculate the mean (user was
+										% informed about this work-around above)
 										dummy(idx(i)) = {round(mean([dummy{idx(i)-1},dummy{idx(i)+1}]))};
 									else
 										uiwait(msgbox('There are OVEFLW values at the beginning or the end of the data. Please edit the file before using the ChronAlyzer again.','','modal'))
@@ -922,54 +950,49 @@ function result = ChronAlyzer()
 								
 								raw(data_starts(daten_idx)+1:data_ends(daten_idx),4:end) = dummy;
 								mess_{daten_idx} = cell2mat(raw(data_starts(daten_idx)+1:data_ends(daten_idx),4:end));
-
+								
 							end
 							
 						end % try catch
 						
 						
-						% BioTec device software always writes 96 wells
-						% into file: Delete unused wells.
-
-						% Note: The developement for ChronAlyzer was for
-						% Mithras device only at the beginning. 
-						% It would have been better to use the BioTec
-						% layout from the beginning. ToDo: Rewrite software
+						% BioTec device software always writes 96 wells into file: Delete unused wells.
+						
+						% Note: The developement for ChronAlyzer was for Mithras device only at the beginning.
+						% It would have been better to use the BioTec layout from the beginning. ToDo: Rewrite software
 						% (Always use a complete 96 matrix (8x12) ...)
 						
 						del_idx = [];
-                        
-                        if size(mess_{1},2) < 96
-                            disp('test data detected! (otherwise at least 96 well entries were expected)')
-                            for spalte_idx = 1:size(mess_{1},2)
-                                del_idx = [del_idx, all(isnan(mess_{1}(:,spalte_idx)))];
-                            end
-                            % data matrix doesn't have to be filled,
-                            % because it will be shrinked anyway
-                            
-                        else
-    
-                            for spalte_idx = 1:96
-                                del_idx = [del_idx, all(isnan(mess_{1}(:,spalte_idx)))];
-                            end
-                            
-                        end
-						mess_{1}(:,logical(del_idx))	= []; % lösche leere Spalten
+						
+						if size(mess_{1},2) < 96
+							disp('test data detected! (otherwise at least 96 well entries were expected)')
+							for spalte_idx = 1:size(mess_{1},2)
+								del_idx = [del_idx, all(isnan(mess_{1}(:,spalte_idx)))];
+							end
+							% data matrix doesn't have to be filled, because it will be shrinked anyway
+							
+						else
+							
+							for spalte_idx = 1:96
+								del_idx = [del_idx, all(isnan(mess_{1}(:,spalte_idx)))];
+							end
+							
+						end
+						mess_{1}(:,logical(del_idx))	= []; % remove empty columns
 						name(logical(del_idx))			= [];
 						
 						if ~device_envision
-							read_titel(daten_idx)			= txt(6,2); 
+							read_titel(daten_idx)			= txt(6,2);
 						else
 							read_titel(daten_idx)			= fname(daten_idx);
 						end
 						
-						% Important check: Are there measurement for all
-						% wells for all times? If not, there will be errors
+						% Important check: Are there measurement for all wells for all times? If not, there will be errors
 						% (see below, text in messagebox).
-						% --> workd-around: Cut those entries ...
+						% --> work-around: Cut those entries ...
 						
-						% ToDo: Whole measurement data matrix system must
-						% be reworked.
+						% ToDo: Whole measurement data matrix system must be checked or better
+						% be reworked (in particular if non-96 well plates are introduced)
 						
 						dummy	= any(cell2mat(cellfun(@isnan, mess_,'UniformOutput',false)),2);
 						
@@ -982,114 +1005,115 @@ function result = ChronAlyzer()
 								'". Perhaps caused by a manually stop of the experiment. All data in these rows are about to be ignored. But this ' ...
 								'can result in error when biological replicates are considered.' newline 'Proposed remedy: Manually edit all files ' ...
 								'in question before starting the ChronAlyzer again.'],'','modal'))
-						
+							
 						end
 					end
 					
 				end % schleife über alle Dateien
-
+				
 				if anz_reads > 1 % this variable is > 1 only if there are multiple data sets within one file (only ever noticed with Mithras (I think))
-
+					
 					a = ['1. Datensatz = ' read_titel{1} ' - ' read_titel{2}];
 					b = ['2. Datensatz = ' read_titel{2} ' - ' read_titel{1}];
-
-					% ToDo: Documenation is needed for this question - I
-					% can't remember since we don't use the Mithras device
+					
+					% ToDo: Documentation is needed for this question - I can't remember since we don't use the Mithras device
 					% anymore (since several years)
 					answer = questdlg('Which set of data do you want to modify?','Modification',a, b, a);
-
+					
 					switch answer
 						case a
 							mess_{1} = mess_{1} - mess_{2};
 						case b
 							mess_{2} = mess_{2} - mess_{1};
 					end
-
+					
 					mess(:,:,1) = mess_{1}';
 					mess(:,:,2) = mess_{2}';
-
+					
 				else
-
+					
 					mess_ = mess_{1}';
-
+					
 					if file_idx == 1
-	
-						mess = NaN(size(mess_,1),size(mess_,2),file_anz); 
-	
+						
+						mess = NaN(size(mess_,1),size(mess_,2),file_anz);
+						
 					end
 					
 					
-					% ToDo: Maybe this IF-ELSE-THEN is obselete, I have to check
-					% biological and technical replicates were handled
+					% ToDo: Maybe this IF-ELSE-THEN is obsolete, I have to check biological and technical replicates were handled
 					% differently in early versions of ChronAlyzer
-					if strcmp(replikat_mode, 'tech')
-
+					
+					if strcmp(replicate_mode, 'tech')
+						
+disp('This should not be called anymore!')
+keyboard	
+						
 						if any(size(mess(:,:,1)) ~= size(mess_))
-
+							
 							msgbox(['Error: To make use of technical replicates, data files must be structured in the same way:' CR ...
 								'Same used wells and same measurement times!'],'','modal')
-
+							
 							if size(mess_,2) ~= size(mess(:,:,1),2)
-
+								
 								msgbox(['Time range of experiment in file "' fname{file_idx} '" doesn''t fit; I am trying to shorten measurements! Please check results carefully!'],'','modal')
-
+								
 								if size(mess_,2) > size(mess(:,:,1),2)
-
+									
 									mess_	= mess_(:,1:size(mess(:,:,1),2),1);
-									t		= t(1:size(mess,2));								
-
+									t		= t(1:size(mess,2));
+									
 								else
-
+									
 									mess	= mess(:,1:size(mess_(:,:),2),1);
-
+									
 								end
-
+								
 							else
-
+								
 								error('Proably user error (code: "No technical replicates were selected")')
-
+								
 							end
 						end
-
+						
 						mess(:,:,file_idx) = mess_;
-
-					elseif strcmp(replikat_mode, 'biol')
-
+						
+					elseif strcmp(replicate_mode, 'biol')
+						
 						if file_idx == 1
 							
 							mess = NaN(96,size(mess_,2),file_anz);
-						
-						elseif size(mess(:,:,1),2) ~= size(mess_,2) % Unterschiedliche zeitliche Länge
-
+							
+						elseif size(mess(:,:,1),2) ~= size(mess_,2) % different time-series lengths!
+							
 							uiwait(msgbox(['The selected data files contain data sets of different sizes (-> number of measurements)', CR ...
 								'Only identical measurements can be merged! Please check your file selection!' CR ...
 								'Now, without further checks, the data sets are constrained to the shortest common test duration!!'], '','modal'));
-
-							if size(mess,2) > size(mess_,2) % Neues File ist kürzer, bisherige Daten kürzen
-
+							
+							if size(mess,2) > size(mess_,2) % New file's time-series is shorter, shorten previous files
+								
 								mess	= mess(:,1:size(mess_,2),:);
-								% Zeit "t" wurde schon angepasst, weil sie mit "mess_" neu befüllt
-								% wurde
-
-							elseif size(mess,2) < size(mess_,2) % neues File ist länger,-> kürzen!
-
+								% don't need to fill "t" again, because this is not the first file and "t" must be the same for all
+								
+							elseif size(mess,2) < size(mess_,2) % new file's time-series is longer, cut this one according to previous "t"
+								
 								mess_	= mess_(:,1:size(mess,2));
 								t		= t(1:size(mess,2));
-
+								
 							end
-
+							
 						end
-					
-						mess(:,:,file_idx) = wellname_pos(mess_, name); % Allgemein für alle Wells machen (erste Reihe ist für "A01" etc.)
 						
-					else % Wenn weder biolog. noch techn. Replikate
+						mess(:,:,file_idx) = wellname_pos(mess_, name); % do it for all wells anyway
+						
+					else % case if no replicate group was used, neither biological nor technical
 						
 						if file_anz > 1
 							error('I am sorry, this should have not occured (error code: "f_anz > 1"')
 						end
 						
 						if size(mess_,1) == 96
-							mess = wellname_pos(mess_, name); % Berücksichtigt die Anordnung der Wells in der Datei
+							mess = wellname_pos(mess_, name); % respects the order of wells in file
 						else
 							mess = mess_;
 						end
@@ -1097,94 +1121,90 @@ function result = ChronAlyzer()
 					end
 					
 					clear mess_;
-
+					
 				end
-
+				
 			otherwise
-
-				warning(['unknown file type: "' fname{j} '"']);
+				
+				warning(['unknown file type: "' fname{file_idx} '"']);
 				continue
 				
 		end % switch (file) extension
 		
-		% Prüfung der Daten
+		% checking data
 		if numel(t) < 5 % and this
 			uiwait(msgbox('The imported files do not contain time series or at least too few measurements!','','modal'))
 			error('The imported files do not contain time series?!');
 		end
 		
-	[~,filename,~] = fileparts(fname{1});
-	
-	% ToDo:
-	% check for equidistant measurement times
-	% create a global weighting factor vector, and set the value to zero
-	% when a measurement is missing (or is later declared as a 'noisy peak'
-	% by the user).
-	
-	
-	
-%% Layout einlesen
-
+		[~,filename,~] = fileparts(fname{1});
+		
+		% ToDo:
+		% check for equidistant measurement times create a global weighting factor vector, and set the value to zero
+		% when a measurement is missing (or is later declared as a 'noisy peak' by the user).
+		
+		
+%% Import Layout (only once, when importing the first file) -- (still inside loop)
+		
 		if file_idx == 1
 			
 			OK = false;
 			while ~OK
-			
+				
 				mbox_h = msgbox(['Next: Please select a) a data file with the used wells layout (if not available press cancel), ' ...
-						'b) then select the Excel cells containing the labels of each well AND the row and column with labels (A-H, 1-12)'],'Annotation file?' ,'modal');
-	
-				child = get(findobj(mbox_h,'type','Axes'),'Children');
-				child.FontSize = 10;
+					'b) then select the Excel cells containing the labels of each well AND the row and column with labels (A-H, 1-12)'],'Annotation file?' ,'modal');
+				
+				child					= get(findobj(mbox_h,'type','Axes'),'Children');
+				child.FontSize			= 10;
 				mbox_h.OuterPosition(3) = 350;
 				
-				
 				timed = timer('ExecutionMode','singleShot','StartDelay',5,'TimerFcn',@(~,~)myclose(mbox_h));
-				% Schließt Fenster nach einer bestimmten Zeit automatisch
+				% auto time-out
 				start(timed);
 				
-				% Einlesen eines Platten- / Experiment-Layout-Files
+				% get layout file name from user
 				[layoutname, layoutpath] = uigetfile( {'*.xls*','well-layout File (xls xlsx)'}, ...
-						'Select well-layout file or cancel','select file or cancel');
-
+					'Select well-layout file or cancel','select file or cancel');
+				
 				if layoutpath == 0
-
+					
 					uiwait(msgbox(['For future application, please place the well-layout whether in the same (in a different sheet) or a seperate Excel file:' newline ...
 						'The content of the Excel cells will be used as label for the wells.'],'','modal'))
-
+					
 					% create a generic named well-layout
-
+					
 					for wi = 1:8
 						for wj = 1:12
 							layoutraw{wi,wj} = [char(64+wi) num2str(wj,'%02.0f')];
 						end
 					end
-
+					
 					OK = true;
 					
-					layouttxt			= cellfun(@num2str,layoutraw,'UniformOutput',false); % wandelt alles in Text um, auch NaN
-
+					layouttxt			= cellfun(@num2str,layoutraw,'UniformOutput',false); % converts all into text, even NaN
+					
 				else
 					
 					try
-						[layoutnum,layouttxt,layoutraw] = xlsread(fullfile(layoutpath,layoutname),-1); %'Experiment Setup','B3:M10');
+						[layoutnum,layouttxt,layoutraw] = xlsread(fullfile(layoutpath,layoutname),-1); 
 					catch ME
 						layoutraw = [];
 					end
-
+					
 					if size(layoutraw,1) < 2
-
+						
 						answer = questdlg('Apparently no range of cells were selected within the XLS file. Abort program or repeat file selection?','Abort or Repeat?','Abort','Repeat','Repeat');
 						if strcmp(answer,'Abort')
 							return
 						end
-
-						continue 
-
+						
+						continue
+						
 					else
-
-						% delete empty rows (perhaps used be combined Excel rows 
+						
+						% delete empty rows (perhaps used be combined Excel rows
 						delete_rowidx = [];
-
+						
 						for wi = 1:size(layoutraw,1)
 							if numel(cell2mat(cellfun(@isnan,layoutraw(wi,:),'UniformOutput',false))) == size(layoutraw,2) && ...
 									all(cell2mat(cellfun(@isnan,layoutraw(wi,:),'UniformOutput',false)))
@@ -1194,41 +1214,41 @@ function result = ChronAlyzer()
 						if ~isempty(delete_rowidx)
 							layoutraw(delete_rowidx,:)=[];
 						end
-
+						
 						if ((size(layoutraw,1)-1) * (size(layoutraw,2)-1)) < numel(name)
 							warning(['Layout data not complete? For each well on the plate should exist a corresponding Excel cell entry ' ...
 								'AND additionally the labels of the rows and columns (e.g. "A-H" and "1-12")!'])
 						end
-
+						
 						OK = true;
 					end
 					
-					
-					layouttxt			= cellfun(@num2str,layoutraw,'UniformOutput',false); % wandelt alles in Text um, auch NaN
+					layouttxt			= cellfun(@num2str,layoutraw,'UniformOutput',false); % converts everything into text, even NaN
 					layouttxt			= layouttxt(2:end,2:end); % cut labels (A-H, 1-12)
+					
 				end
-			
+				
 			end % repeat file selection until data are good (or arbitrary)
-			
 			
 			name_gruppen_layout = setxor(unique(layouttxt),'NaN');
 			anz_gruppen_layout	= numel(name_gruppen_layout);
-
+			
 		end
-	
+		
 	end
 
-%% Einlesen aller Daten beendet (Schleifenende), letztes Datensortieren	
+
+%% some clean-up after all data are imported (loop end)
 	
-	% Hier trat ein Fehler zu Tage, der quick&dirty gefixed wurde
+	% this is a quick & dirty fix:
 	if device_mithras
-		num_sorted		= true; % Mithras ist nach Zahlen sortiert (A1, B1, ..., H1, A2, ...)
+		num_sorted		= true; % Mithras data are order by numbers (A1, B1, ..., H1, A2, ...)
 	else
-		num_sorted		= false; % BioTek und Envision sind nach Buchstaben sortiert (A1, A2, ..., A12, B1, B2, ...)
+		num_sorted		= false; % BioTek and Envision are order by letters (A1, A2, ..., A12, B1, B2, ...)
 	end
 
 	
-	if strcmp(replikat_mode,'biol') && device_mithras
+	if strcmp(replicate_mode,'biol') && device_mithras
 		
 		name				= asort(unique(biolgr_name));
 		name				= reshape(name.anr,1,[]);
@@ -1244,75 +1264,96 @@ function result = ChronAlyzer()
             name{i} = [name{i}(1) '0' name{i}(2)];
         end
 	end
-    
+	
+	% check again
 	if any(any(diff(reshape(cell2mat(cellfun(@size,name,'UniformOutput',false))',2,numel(name)),2,2)))
-		% Testest Namensformat noch einmal
 		uiwait(msgbox('Error: Imported well descriptions are not in the anticipated format (e.g. "B05")','','modal'));
 		error('Imported well descriptions are not in the anticipated format (error code 1121)')
 	end
-	
-	% old: show_Annotation; % Unter anderem das Platten-Layout
-	show_Thumbnails;
-	show_layout; % New: show stored plate layout
 
-%% "Verrechnen" technischer Replikate (bei mehreren Platten)
-% Wenn biolog. Replikate ausgewählt wurden, sollen keine plattenübergreifende Mittelwerte gebildet
-% werden. Trotzdem kann hier ein grafischer Vergleich auch nützlich sein.
+	% ===================================================================================
+	% Outcome of this section (as stated at the beginning of the big loop):
+	% "t":		contains a vector of measuring times (valid for all measurements!)
+	% "mess":	this is a 3D-matrix; 1-dim well number (so length == 96); 2-dim: entries for all measurements (so length == length(t));
+	%				3-dim: number of files loaded
+	% "name":	cell matrix with strings, containing names of wells ("A01" ,...")			
+	% ===================================================================================
+	
+	
+	
+%% Show thumbnail ansd plate layout	
+
+	% ===============================================
+	
+	show_Thumbnails;
+	show_layout;
+	% ToDo: Since plate layout is imported from xls file, there's no real need to display it. Perhaps just to enable the user to see if the
+	% correct file was selected and loaded?
+	
+	% ===============================================
+
+%% "Considering" of biological replicates
+
+	% General idea of work-flow: If biological replicates are loaded, these are not averaged immediately (in contrast to technical replicates)
+	% Still, it might be interesting to see the difference between several plates
 
 	if file_anz > 1 % && strcmp(replikat_mode, 'tech'),
 
-		stdabw	= std(mess,0,3,'omitnan'); % Normale Standardabweichung 
-		% Hinweis: "omitnan" ignoriert elementweise (!) NaN-Einträge !!
-		% stdabw_proz			= std(mess,0,3)./(max(0.1,mess(:,:,1))) .* 100; 
-		% Prozentuale Abweichung; Minimumwerte werden auf 0.1 gesetzt, um
-		% eine Division durch null zu verhindern
-		% Hinweis: Prozentangabe bezieht sich auf erste ausgewählte Platte
+		stdabw	= std(mess,0,3,'omitnan'); % calculate standard deviation
+		% Note: "omitnan" ignores single NaN entries - it can always happen that a well or a single measurement (time & well) failed
+		% Single NaNs will be already replaced (above) by the average of adjacent values
+		%
+		% For the percentage calculation I set the minimum to 0.1 in order to prevent division by zero - and this is only for display of
+		% course. The percentage value refers to the first selected plate.
 		
-		if strcmp(replikat_mode, 'biol')
-			% Sonderbehandlung, weil size(mess) = 96,... ist 
-			% (Bei "tech" ist "mess" entsprechend so groß, wie es Daten in Wells gibt		
+		if strcmp(replicate_mode, 'biol')
+
 			notnan_xidx = [];
+
 			for d_idx = 1:size(mess,3)
-				notnan_xidx = [notnan_xidx; find(~isnan(mess(:,1,d_idx)))]; % finde alle Zeilen mit NaN (=leere Wells)
+				notnan_xidx = [notnan_xidx; find(~isnan(mess(:,1,d_idx)))]; % find all columns with NaNs (e.g.: empty/failed well)
 			end
 			
-			% Zusätzlich: Nur die übriglassen, bei denen mindestens zwei Datensätze vorhanden sind
-			% für Standardabweichung und Fehler wichtig
+			% Addtional: Keep only those with at least two data sets are available (can't calculate "std" otherwise)
+
 			not2nan_xidx = notnan_xidx; 
 			for i = numel(not2nan_xidx):-1:1
-				if numel(find(not2nan_xidx(i) == not2nan_xidx)) == 1 % nur einmal aufgelistet
-					not2nan_xidx(i) = []; % Element löschen
+				if numel(find(not2nan_xidx(i) == not2nan_xidx)) == 1 % found only a single entity ...
+					not2nan_xidx(i) = []; % ... therefore: remove element
 				end
 			end
 			
 			not2nan_xidx	= unique(not2nan_xidx);
 			notnan_xidx		= unique(notnan_xidx);			
-			stdabw			= stdabw(not2nan_xidx,:);		% lösche die Zeilen aus der Matrix
-			voll_mess		= mess(notnan_xidx,:,:);		% speichere "vollständige" Matrix,
-			mess			= mess(not2nan_xidx,:,:);		% lösche die Zeilen aus der Matrix
-															% Für den folgenden, grafischen Vergleich
-															% sind nur Wells mit min. 2 Replikaten
-															% wichtig, später aber auch jene, für
-															% die es nur einen Datenstz gibt.
+			stdabw			= stdabw(not2nan_xidx,:);		% clear columns from std-matrix
+			full_mess		= mess(notnan_xidx,:,:);		% save full matrix for later
+			mess			= mess(not2nan_xidx,:,:);		% clear columns from meas-matrix
+			
+			% Explanation: Only for the graphical comparision wells with at least 2 replicates are valid. 
+			% But of course those with only one entity are valid for analyze as well
+			
 		else
 			
-			% Bei techn. Replikaten hat die Matrix nur genausoviele Zeileneinträge wie Daten
-			% (und auf jeder Platte sollten alle Wells gleich sein)
+			% With technical replicates this is much easier :-)
 			notnan_xidx = 1:size(mess,1);
 			
 		end
 		
 		
-		if strcmp(replikat_mode, 'tech') 
+		if strcmp(replicate_mode, 'tech') 
 			
-			% Hier wird die Mittelung für TECHNISCHE REPLIKATE durchgeführt
+disp('This shouldn''t be called here')			
+keyboard
+			% ================================================================
+			% Here, the averaging of technical replicates is performed
 			mess = mean(mess(not2nan_xidx,:,:),3);
+			% ================================================================
 		
 		end
 		
 		f				= figure;
 		f.Position		= [50   50  970  800];
-		if strcmp(replikat_mode, 'biol')
+		if strcmp(replicate_mode, 'biol')
 			f.Name		= 'Comparison of biological replicates: Average value and standard deviations (+/-)';
 		else
 			f.Name		= 'Comparison of biological replicates';
@@ -1345,7 +1386,10 @@ function result = ChronAlyzer()
 					xlabel('t [h]')
 				end
 				
-				if strcmp(replikat_mode, 'tech') 
+				if strcmp(replicate_mode, 'tech') 
+					
+disp('This shouldn''t be called here')			
+keyboard					
 					name{k} = ['MHA-' name{k}]; % damit in Zukunft klar wird, dass Mittelwert von t.Repl. dargestellt wird
 				end
 		 
@@ -1378,10 +1422,10 @@ function result = ChronAlyzer()
 			'String','Using the averaged values (displayed as dashed line) from now on','units','normalized','Position',[.55,.95,.4,.04],'Callback',{@OK_Button_Cb});
 	
 		
-		if strcmp(replikat_mode, 'biol')
+		if strcmp(replicate_mode, 'biol')
 			
 			hbestaetigt.String	= 'User acknowledged standard deviations, continue ...';
-			mess				= voll_mess;	% Stelle vollständige Matrix wieder her
+			mess				= full_mess;	% Stelle vollständige Matrix wieder her
 			
 		end
 		
@@ -1437,7 +1481,7 @@ function result = ChronAlyzer()
 		xlim([0 1]);
 		ylim([0 1]);
 		
-		if ~isempty(replikat_mode)
+		if ~isempty(replicate_mode) % biological replicate
 			tabelle_fig_h.Name	= strjoin(fname,' + ');	
 		else
 			tabelle_fig_h.Name	= filename;
@@ -1516,7 +1560,7 @@ function result = ChronAlyzer()
 	%##### verkürzt worden. Dort eventuell daher nur temp. Variablen verwenden, oder hier halt nicht die große Matrix
 	%##### verlangen
 	
-	if strcmp(replikat_mode, 'biol')
+	if strcmp(replicate_mode, 'biol')
 			
 			for wellidx = 1:size(mess,1) %96,
 				anz_rep(wellidx) = sum(~isnan(mess(wellidx,1,:))); % Wieviele Replikate gibt es pro Well
@@ -1536,7 +1580,7 @@ function result = ChronAlyzer()
         % benötigen eine Variable, die erst mit dem Aufruf von
         % "Sort_A_Cb()" gefüllt wird! (Bei Debugging beachten!)
         
-		if strcmp(replikat_mode, 'biol')
+		if strcmp(replicate_mode, 'biol')
 			
             t_h(i)	= uicontrol('parent',panel,'Style','pushbutton','units','pixel', 'position',[32 pos(i)-8 50 15],'String',[name{i} ' (x' num2str(anz_rep(i)) ')'], ...
                 'Callback',{@QuickView_Cb,i});
@@ -1803,11 +1847,14 @@ function result = ChronAlyzer()
 
 %% Überprüfen der Replikatgruppen durch Benutzer & dynamisches Abwählen von Replikaten
 
-		dummy = msgbox(['Please, check each time series for outliers first. After that, the average of each individual replicate group will be calculated and used instead of the original values']);
+		dummy = msgbox(['Please, check each time series for outliers first. After that, the average of each ' ...
+			'individual replicate group will be calculated and used instead of the original values']);
 		timed = timer('ExecutionMode','singleShot','StartDelay',5,'TimerFcn',@(~,~)myclose(dummy));
 			% Schließt Fenster nach einer bestimmten Zeit automatisch
 		start(timed);
 
+		nof_replgr = numel(unique(checkbox_replgr));
+		
 		for file_idx = 1:file_anz
 
 			for replgr_id = unique(checkbox_replgr) % Durchlaufe alle Replikatgruppen
@@ -1839,7 +1886,7 @@ function result = ChronAlyzer()
 				end
 
 				% Berechne Werte für "vollständige" Replikatgruppe
-				if strcmp(replikat_mode,'biol')
+				if strcmp(replicate_mode,'biol')
 					% Überprüfe, ob auf aktueller Platte die ausgewählten Wells gefüllt sind
 					
 					checkbox_platte{file_idx, replgr_id} = checkbox_idx_in_replgr{replgr_id};
@@ -1923,7 +1970,7 @@ function result = ChronAlyzer()
 						err					= [];
 						multiplot_Samples_h	= [];
 						
-						if strcmp(replikat_mode,'biol')
+						if strcmp(replicate_mode,'biol')
 							checkbox_temp			= checkbox_platte{file_idx, replgr_id};
 						else
 							checkbox_temp			= checkbox_idx_in_replgr{replgr_id};
@@ -2272,7 +2319,7 @@ function result = ChronAlyzer()
 		tab_pha_h		= [];
 		tab_err_h		= [];
 		
-		if strcmp(replikat_mode,'biol')
+		if strcmp(replicate_mode,'biol')
 			dummy = msgbox(['For each imported plate there will be an invidual fitting for each well (or replicate group if defined) performed. Results will be merged at the end.']);
 			timed = timer('ExecutionMode','singleShot','StartDelay',15,'TimerFcn',@(~,~)myclose(dummy));
 			% Schließt Fenster nach einer bestimmten Zeit automatisch
@@ -2345,7 +2392,7 @@ function result = ChronAlyzer()
                     % +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 					% +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
                     
-					if strcmp(replikat_mode,'biol')
+					if strcmp(replicate_mode,'biol')
 						
 						%vorhanden = reshape(find(~isnan(mess(i,1,:))),1,[],1); % In diesen Dateien sind Daten zu dem aktuell Well ("i")
 						
@@ -2396,7 +2443,7 @@ function result = ChronAlyzer()
                         end
                     end
 					
-					if ~strcmp(replikat_mode,'biol')
+					if ~strcmp(replicate_mode,'biol')
 						Options.results{i} = fit_param;
 					end
 
@@ -2658,7 +2705,7 @@ function result = ChronAlyzer()
 		end
 
 		
-		if strcmp(replikat_mode,'biol')
+		if strcmp(replicate_mode,'biol')
 			% Suche im Folgenden Ausgabe-Grafiken, in deren Titel Anführungszeichen stehen; diese sind einzelne
 			% Replikatgruppen-Ergebnisse. Es werden dann jeweils die Grafiken, die zu einem Replikatgruppennamen
 			% passen, zusammen gesucht und die angepassten Kurven aus den Grafiken in eine gemeinsame, neue Figure kopiert.
@@ -2798,7 +2845,7 @@ function result = ChronAlyzer()
 
 		end
 		
-		if exist('joke_h') && ishandle(joke_h),
+		if exist('joke_h') && ishandle(joke_h)
             delete(joke_h)
 		end
 
@@ -2806,9 +2853,13 @@ function result = ChronAlyzer()
 			% User hat auf "Ende" Button gedrückt
 			break
 		end
+
 		
 	end
-
+	
+	result = Options.result; % Does subfunctions work as intended?
+	
+	
 %% clean up GUI before regular program termination
 	
 	hSaveFigs.Visible	= 'off';
@@ -3712,7 +3763,7 @@ function result = ChronAlyzer()
 			
             plot(t,mess(image_,:,1));
 
-            if strcmp(replikat_mode,'biol')
+            if strcmp(replicate_mode,'biol')
                 hold on
                 for g = 2:size(mess(image_,:,:),3)
                     plot(t,mess(image_,:,g));
@@ -4211,7 +4262,7 @@ function result = show_Thumbnails()
 							image_idx = image_idx +1;
 							hold on
 
-							if strcmp(replikat_mode,'biol')
+							if strcmp(replicate_mode,'biol')
 
 								hold on
 
@@ -4270,7 +4321,7 @@ function result = show_Thumbnails()
 							image_idx = image_idx +1;
 							hold on
 
-							if strcmp(replikat_mode,'biol')
+							if strcmp(replicate_mode,'biol')
 
 								hold on
 
@@ -4451,20 +4502,20 @@ function result = show_Thumbnails()
 		
 	end
 
-	function big_mess = wellname_pos(mess_, name)
-		% Hilfsfunktion, die Daten über nicht vollständig besetzte Matrizen
-		% in volle 96er-Well-Matrizen überführt.
+	function big_meas = wellname_pos(mess_, name)
+		% this function helps to transfer a not completely filled matrix into a complete 96-matrix
 		
-		big_mess = NaN(96, size(mess_,2));
+		big_meas = NaN(96, size(mess_,2));
 		
 		for i = 1:size(mess_,1)
 			
-			% big_mess (96er-Tabelle) enthält in erster Zeile "A01"
-			% ... "B01" in der 2. Zeile ...
-			% ... "A02" in der 9. Zeile ...
+			% Note: this layout is used:
+			% big_meas (96 table) contains in first column and row: "A01"
+			% ... "B01" in 2. row ...
+			% ... "A02" in 9. row ...
 			
 			position				= wellname2tablerow(name{i});
-			big_mess(position,:)	= mess_(i,:);
+			big_meas(position,:)	= mess_(i,:);
 			
 		end
 			

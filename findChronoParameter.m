@@ -75,7 +75,7 @@ end
 	% Change		= false;
 	
 	
-	% fun_h			= @kurve; % handle to model function
+	fun_h			= @kurve; % handle to model function
 	
 	max_t_filter	= [];
 	Y				= [];
@@ -98,12 +98,12 @@ end
 	if isfield(Options_in,'start_at')
 		start_at					= Options_in.start_at;
 	else
-		start_at					= t(1); % should be zero
+		start_at					= []; % this must be empty to let user select
 	end
 	if isfield(Options_in,'end_at')
 		end_at						= Options_in.end_at;
 	else
-		end_at						= t(end);
+		end_at						= []; % this must be empty to let user select
 	end
 	
 	if isfield(Options_in,'ausreisser_flag')
@@ -148,9 +148,9 @@ end
 		Options.weight_threshhold_time		= 12;
 	end
 	if (isfield(Options_in,'NoSound') && Options_in.NoSound) || audiodevinfo(0) < 1
-		NoSound						= true;
+		Options.NoSound				= true;
 	else
-		NoSound						= false;
+		Options.NoSound				= false;
 	end
 	
 	% find first time index with "full" weighting factor (after fade-in)
@@ -161,7 +161,7 @@ end
     
 %% ------------------------------------
 	
-	if ~NoSound
+	if ~Options.NoSound
         try
             [Y, FS]		= audioread('calibrationlockeddiagnosticunderway.mp3');
             sound_obj	= audioplayer(Y,FS);
@@ -396,7 +396,7 @@ end
 	idx2	= find(xdata >=  end_at,1,'first');
 	
 	% limit data to defined range
-	T = xdata(idx1:idx2); % T und Y sind gekürzte Datensätze
+	T = xdata(idx1:idx2)'; % T und Y sind gekürzte Datensätze
 	Y = ydata(idx1:idx2);
 
 
@@ -680,7 +680,7 @@ hold on
 				extremes_h(i) = plot(T(iLo(i)),y_mess_smooth(iLo(i)),'b*','ButtonDownFcn', @extreme_marker_click_Cb);
 			end
 disp('die Grafik sind nach Müll aus, sobald ein outlier markiert wird, liegt das an dem nicht mehr äquidistanten T?')
-keyboard
+
 			xlim([0 max_t_filter * 1.15]);
 			t_lim = get(gca,'xlim');
 
@@ -691,7 +691,7 @@ keyboard
 			end
 
 	
-			title(['Check extreme values: Click on marker to delete' newline 'Click on line to add a extreme marker' newline ...
+			title([strrep(name_,'group: ','') ': Check extreme values: Click on marker to delete' newline 'Click on line to add a extreme marker' newline ...
 				'Close window to continue after deletion'])
 			uiwait(gcf)
 			
@@ -810,7 +810,7 @@ keyboard
 	t_sim				= t_filter; % copy values to global variables, used in optimization subroutine
 	y_sim				= y_gefiltert;
 
-	if ~NoSound
+	if ~Options.NoSound
         try
             play(sound_obj,FS);
 			pause(1)
@@ -1131,7 +1131,7 @@ keyboard
 			%I = sum(ydiff)/(numel(Y)*max(Y));
 			% auto decrease weight until
 
-			I = sum(ydiff(1:weight_idx).*linspace(0,1,weight_idx))/(numel(Y)*max(Y)); % decreased weight within first <weight_threshhold_time> hrs
+			I = sum(ydiff(1:weight_idx)'.*linspace(0,1,weight_idx))/(numel(Y)*max(Y)); % decreased weight within first <weight_threshhold_time> hrs
 			I = I + sum(ydiff(weight_idx+1:end))/(numel(Y)*max(Y));
 		end
 		

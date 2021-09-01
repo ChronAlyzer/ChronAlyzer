@@ -98,9 +98,9 @@ function result = ChronAlyzer()
 	Ende			= false;
 	Neustart		= false;
 	tab_pha_h		= []; % handles for entries in the main table (phase, amplification, ....)
-	tab_amp_h		= [];	
-	tab_dam_h		= [];	
-	pha_button		= 1;
+	tab_amp_h		= []; % ...	
+	tab_dam_h		= []; % ...	
+	pha_button		= 1; 
 	mouseselectY_1	= [];
 	mouseselectY_2	= [];
 	kontroll_idx	= NaN;
@@ -117,7 +117,7 @@ function result = ChronAlyzer()
 	biolgr_name		= '';
 	
 	general_options	= struct('TimeWeight',false,'LogDiff',false,'ConstParameterPER',true, 'ConstParValue', 24, 'weight_threshhold_time',12); % options - saved in user settings	
-    nof_wells       = 96; % ToDo: number of wells -  actually other plate format should work also, but not tested yet. 
+    nof_wells       = 96; % ToDo: number of wells -  actually other plate format should work also at least for displaying data, but further function not tested yet. 
 	datum_str		= strrep(char(datetime('now')),':','_');  % Date, used for file export
 	
 	% User-Optionen (default values) - will be asked for in program
@@ -126,6 +126,13 @@ function result = ChronAlyzer()
     const_PER       = true; % Period length OR phase-shift must be kept constant, which one?
     const_value		= 24; % default value for constant period length (should be modified below if "const_PER" is FALSE of course)
 	
+	% measurement data
+	mess			= [];	% this is a 3D-matrix; 1-dim well number (so length == 96); 2-dim: entries for all measurements (so length == length(t)); 
+							% 3-dim: number of files loaded
+	t				= []; % contains a vector of measuring times (valid for all measurements!)
+	weight			= []; % contains a weighing factor for the objective function in optimation (the "error" function), but is also needed for missing measurement information
+	delta_t			= []; % time difference between measurements; equidistant. If raw data are not equidistantly measured, this had to be modified somehow
+
 	% for annotation - obsolete
 	config			= []; % obsolete too
 	% Note: there are "Load_Replgr" and "Save_Replgr" which could be re-used
@@ -134,7 +141,7 @@ function result = ChronAlyzer()
 	
 	% (measurement) device-depending file format options (this is important
 	% for the order of the information/wells within the files)
-	device_biotek	= false; % data files are created by BioTek reader
+	device_BioTek	= false; % data files are created by BioTek reader
 	device_envision = false;
 	device_mithras  = false;
 	device_opera	= false;
@@ -323,9 +330,9 @@ function result = ChronAlyzer()
 		'0.5.1' CR ...
 		'- Fehler in Option zur Anfangsgewichtung funktionierte genau falsch herum!' CR ...
 		'- Texte angepasst' CR ...
-		'- Import von BioTec-Dateien' CR ...
+		'- Import von BioTek-Dateien' CR ...
 		'0.6.0' CR ...
-		'- Import von BioTec-Dateien verbessert' CR ...
+		'- Import von BioTek-Dateien verbessert' CR ...
 		'- Faktor in ausgegebenen Amplituden und Phasenwerten entfernt (war: x 60)' CR ...
 		'0.6.1' CR ...
 		'- Neustart-Knopf deaktiviert' CR ...
@@ -337,7 +344,7 @@ function result = ChronAlyzer()
 		'- Opera-Phenix-Dateien (*.txt) können eingelesen werden' CR ...		
 		'- Eingabe-Dateien mit der Endung ".txt" werden nur noch als Opera-Phenix-Dateien erlaubt' CR ...				
 		'0.6.3' CR ...
-		'- Änderung beim Einlesen der Biotec-Dateien: Datenpaket "Lum2" wird nun verwendet' CR ...
+		'- Änderung beim Einlesen der BioTek-Dateien: Datenpaket "Lum2" wird nun verwendet' CR ...
 		'- BioTek gibt manchmal "OVRFLW" Fehler anstelle eines Messwerts; dieser wird ersetzt durch einen Mittelwert' CR ...
 		'0.6.4' CR ...
 		'- Neuer Button: "Save Tab+Fig", speichert alle (geöffneten!) Grafiken mit Kurvenanpassungen auf einmal' CR ...	
@@ -348,13 +355,13 @@ function result = ChronAlyzer()
 		'- einige Meldungsfenster schließen sich nach kurzer Zeit automatisch' CR ...
 		'- In Dialogen wurden sinnvolle Standardwerte voreingetragen' CR ...
 		'0.6.6' CR ...
-		'- BioTec-Daten: Die "Lum"-Werte werden nun ausgelesen (vormals: "Lum[2]")' CR ...	
+		'- BioTek-Daten: Die "Lum"-Werte werden nun ausgelesen (vormals: "Lum[2]")' CR ...	
 		'0.7.0' CR ...
 		'- Fehler beim Speichern vieler Grafiken beseitigt' CR ...
 		'- Kurioser Fehler beim Speichern der Ergebnistabelle (xlsx) beseitigt (aber da ist evtl. noch einer)' CR ...
 		'- Fensterposition angepasst' CR ...		
 		'- "Save Tab+Fig" Button in "Save Figs" Button geändert' CR ...
-		'- Einlesen von Duplikat-Biotec-Datenfiles wurde verändert; grafische Darstellung stimmt nun wieder' CR ...
+		'- Einlesen von Duplikat-BioTek-Datenfiles wurde verändert; grafische Darstellung stimmt nun wieder' CR ...
 		'- Erweitert von 12 auf 24 Replikatgruppen' CR ...
 		'- ChronAlyzer Reports werden eingeführt (noch nicht verfügbar)' CR ...	
 		'- Ergebnis-Grafiken zeigen nun auch die originalen Rohdaten unterhalb der Hauptgrafik an' CR ...
@@ -437,7 +444,9 @@ function result = ChronAlyzer()
 		'0.8.7' CR ...
 		'- error fix when using outliers' CR ...
 		'- changed wording "outliers" -> "remove noisy peaks"' CR ...
-		'- added and translated more comments' ...
+		'- added and translated more comments' CR ...
+		'- began to introduce a weighting factor matrix, supporting missing measurement data and outliers (as defined by user)' CR
+		'  (not finished yet)' ...
 		];
 	
 	end
@@ -525,11 +534,11 @@ function result = ChronAlyzer()
 		end
         
 		if i == 1
-			[fname{1}, pathname{1}] = uigetfile( {'*.xls*','Mithras / Biotec / Envision result files (xls xlsx)';'*.txt', 'Opera Phenix export file (txt)'}, ...
+			[fname{1}, pathname{1}] = uigetfile( {'*.xls*','Mithras / BioTek / Envision result files (xls xlsx)';'*.txt', 'Opera Phenix export file (txt)'}, ...
 				[num2str(i) '. Select data file or cancel'],'Select first data file or cancel');
 			i = i + 1;
 		else
-			[fname_, pathname{i}] = uigetfile( {'*.xls*','Mithras / Biotec / Envision result files (xls xlsx)';'*.txt', 'Opera Phenix export file (txt)'}, ...
+			[fname_, pathname{i}] = uigetfile( {'*.xls*','Mithras / BioTek / Envision result files (xls xlsx)';'*.txt', 'Opera Phenix export file (txt)'}, ...
 				['Select ' num2str(i) '. and more data file or cancel'],['Select ' num2str(i) '. file or cancel'], 'MultiSelect', 'on');
 			
 			if ~iscell(fname_) % easy: only one file was selected at the same time
@@ -603,7 +612,7 @@ function result = ChronAlyzer()
 					replicate_mode = 'biol';
 					mbox_h = msgbox(['Note: For proper processing of biological replicates, all data files have to be in the same way structured as the first!'],'','modal');
 					% auto time-out for dialog window:
-					timed =  timer('ExecutionMode','singleShot','StartDelay',2,'TimerFcn',@(~,~)myclose(mbox_h));
+					timed =  timer('ExecutionMode','singleShot','StartDelay',4,'TimerFcn',@(~,~)myclose(mbox_h));
 					start(timed);
 			end
 
@@ -659,6 +668,9 @@ function result = ChronAlyzer()
 		
 		[~,~,extension] = fileparts(fname{file_idx});
 		
+		if debug
+			disp(['... working on: "' fname{file_idx} '"'])
+		end
 		
 		% Data sources are not always formatted in this way, imported data
 		% has to be re-formatted accordingly (or a new import filter must
@@ -666,10 +678,14 @@ function result = ChronAlyzer()
 		
 		switch extension
 			
-			case '.txt' % could be used for "*.csv" as well
-				% Note: this case is not developed further and might be outdated.
+			case '.txt'  % -------------------------------------------------------------------
 				
-				% modify text layout to your needs
+				% could be used for "*.csv" as well
+				%
+				% Note: this case is not developed further and is be outdated!
+				% There is only a basic functionality supported with this file type
+				
+				% modify text filter to your needs
 				
 				messdaten		= importdata(fullfile(pathname{file_idx},fname{file_idx}),'\t',9);
 				result			= true;
@@ -691,18 +707,20 @@ function result = ChronAlyzer()
 				% set measurement value to zero (because it was invalid somehow)
 				messdaten.data(wrong_data_idx,5) = 0; % set measurement value to zero
 				
-				t								= messdaten.data(:,9)'./3600;
-				t								= zeitrunden(t);
-				mess							= messdaten.data(:,5);
-				mess							= mess';
+				t							= messdaten.data(:,9)'./3600;
+				t							= zeitrunden(t);
+				mess_						= [messdaten.data(:,5)]';
+				% ToDo: Currently, there is no check if all time-series are identical in reference to times and wells
 				
-				first_measurement_idx			= find(messdaten.data(:,4) == 0); % MessInfo sometimes empty
-				rows							= messdaten.data(first_measurement_idx,[1:2]);
+				first_measurement_idx		= find(messdaten.data(:,4) == 0); % MessInfo sometimes empty
+				rows						= messdaten.data(first_measurement_idx,[1:2]);
 				
-				mess							= reshape(mess,numel(find(t==0)),[]);
-				t								= unique(t);
+				mess(:,:,file_idx)			= reshape(mess_,numel(find(t==0)),[]);
+				weight						= ones(size(mess));				
+				t							= unique(t);
+				delta_t						= get_delta_t(t);
 				
-				name							= {};
+				name						= {};
 				
 				for r_idx = 1:size(rows,1)
 					r1			= rows(r_idx,1);
@@ -712,7 +730,7 @@ function result = ChronAlyzer()
 				
 				device_opera = true; % this "Opera" device can export measurement into TXT files (not used anymore)
 				
-			case {'.xls','.xlsx'}
+			case {'.xls','.xlsx'} % -------------------------------------------------------------------
 				
 				try
 					[enum,txt,raw] = xlsread(fullfile(pathname{file_idx},fname{file_idx}));
@@ -745,7 +763,7 @@ function result = ChronAlyzer()
 				% Note:
 				% -- Mithras and Envision devices use the word "Time" only once; in the column before the time-series data. Detect Envision by
 				% finding the key word "Synergy Neo2". This should be modified for different devices.
-				% -- BioTec uses "Times" twice; the first in the meta data header, the second in the second column before the measurement data
+				% -- BioTek uses "Times" twice; the first in the meta data header, the second in the second column before the measurement data
 				
 				
 				if anz_reads > 1 && file_anz > 1
@@ -775,7 +793,7 @@ function result = ChronAlyzer()
 					
 				else
 					
-					% Device: BioTec or Mithras
+					% Device: BioTek or Mithras
 					
 					if ~strcmpi(txt{8,2},'synergy neo2') % = Mithras
 						
@@ -805,9 +823,9 @@ function result = ChronAlyzer()
 						
 						data_ends = data_ends-1;
 						
-					else % BioTec
+					else % BioTek
 						
-						device_biotek	= true;
+						device_BioTek	= true;
 						data_starts		= cellstrfind(txt(:,2),'^Time');
 						
 						if numel(data_starts) > 1
@@ -823,7 +841,7 @@ function result = ChronAlyzer()
 						end
 						
 						data_ends = data_ends - numel(find(cell2mat(raw(data_starts+2:data_ends,2))==0));
-						% Note: Boiotec data sheets sometimes contain rows with "00:00:00" times, but otherwise empty.
+						% Note: BioTek data sheets sometimes contain rows with "00:00:00" times, but otherwise empty.
 						% This happens when the measurement is interupted manually at the device.
 						
 					end
@@ -837,12 +855,16 @@ function result = ChronAlyzer()
 				% ------ Importing of file text content starts here ----------------------
 				
 				% Reading measurement time information
+				
 				if file_idx == 1
 					
+					% ToDo: Add a note to user to select the longest, most complete (no missing measurements) data set first - make's a lot
+					% easier
+
 					if device_mithras
 						t			= txt(data_starts(1)+1:data_ends(1),1);
 						t			= convert_Time2DecHour(t); % Conversion of time from character string
-					elseif device_biotek
+					elseif device_BioTek
 						t			= cell2mat(raw(data_starts+1:data_ends,2)) * 24; % Conversion of decimal time into hours
 						t			= t'; % Transponieren
 					elseif device_envision
@@ -850,12 +872,16 @@ function result = ChronAlyzer()
 						t			= t'; % Transponieren
 					end
 					
-				else
+					delta_t			= get_delta_t(t);
+					[t, t_old_in]	= fit_t2vector(t, delta_t);
 					
+				else
+					% only for files after the first one
+
 					if device_mithras
 						t_			= txt(data_starts(1)+1:data_ends(1),1);
 						t_			= convert_Time2DecHour(t_); % Conversion of time from character string
-					elseif device_biotek
+					elseif device_BioTek
 						t_			= cell2mat(raw(data_starts+1:data_ends,2)) * 24; % Conversion of decimal time into hours
 						t_			= t_'; % Transponieren
 					elseif device_envision
@@ -863,17 +889,23 @@ function result = ChronAlyzer()
 						t_			= t_'; % Transponieren
 					end
 					
-					if numel(t) ~= numel(t_)
-						
+					[t_out, t_old_out] = fit_t2vector(t_, delta_t);
+					
+					% ToDo: changed work-flow: Use t_out,t_out_old and t to order mess_ accordingly
+					% ToDo: No need to shorten a time vector; set weight accordingly and use the longest available time vector
+					if numel(t) ~= numel(t_out)
+					% ToDo: change weight (3D-weight !) also
 						msgbox('Warning: Files contain different amounts of time points! Using only the shortest time series!')
 						
-						if numel(t) > numel(t_)
+						if numel(t) > numel(t_out)
 							% the last imported data set is shorter then the first imported! Action: Reduce longer files!
-							mess = mess(:,1:end - abs(diff([numel(t),numel(t_)])),:);
-							t = t_; % shortening
+							mess	= mess(:,1:end - abs(diff([numel(t),numel(t_out)])),:); % mind the third dimension here
+							t		= t_out; % shortening
 						else
-							% the last imported data set is longerr then the first imported! Action: Reduce longer files!
+							% the last imported data set is longer then the first imported! Action: Reduce longer files!
 							data_ends = data_ends - abs(diff([numel(t),numel(t_)])); % move data_ends value accordingly
+							% Note: Here is "t_" needed, becaus "data_ends" must refer to the corresponding "mess_"
+							% This might be changed in a later re-work
 						end
 						
 					end
@@ -882,16 +914,17 @@ function result = ChronAlyzer()
 				end
 				
 				if device_mithras
-					name		= txt(data_starts(1),2:end); % Wellnamen
-				elseif device_biotek
-					name		= txt(data_starts(1),4:end); % Wellnamen
+					name		= txt(data_starts(1),2:end); % Well names
+				elseif device_BioTek
+					name		= txt(data_starts(1),4:end); % Well names
 				elseif device_envision
-					name		= txt(data_starts-1,3:end); % Wellnamen
+					name		= txt(data_starts-1 ,3:end); % Well names
 				end
 				
 				biolgr_name = [biolgr_name name];
 				
 				% Read measurement values
+				%	store this temporarily in "mess_" to perform a sequence of checks first, before integrating this into "mess"
 				
 				for daten_idx = 1:anz_reads
 					
@@ -899,92 +932,140 @@ function result = ChronAlyzer()
 						
 						disp('Mithras data file detected!')
 						
-						mess_{daten_idx}		= cell2mat(raw(data_starts(daten_idx)+1:data_ends(daten_idx),2:end));
+						mess_					= cell2mat(raw(data_starts(daten_idx)+1:data_ends(daten_idx),2:end));
+						weight					= ones(size(mess_));
 						read_titel(daten_idx)	= raw(data_starts(daten_idx)-1,1); % only used for files containing multiple data sets
 						
-					else % = Biotek or Envision measurements
+						% ToDo: There is no TRY-CATCH block for dealing with gaps, like below
 						
-						disp('Biotek or Envision data file detected! (or special case: test data)')
+					else % = BioTek or Envision measurements
 						
 						try
-							if device_biotek
-								mess_{daten_idx} 	= cell2mat(raw(data_starts(daten_idx)+1:data_ends(daten_idx),4:end));
+							if device_BioTek
+								disp('BioTek data file detected! (or special case: test data)')
+								mess_ 	= cell2mat(raw(data_starts(daten_idx)+1:data_ends(daten_idx),4:end));
 							elseif device_envision
-								mess_{daten_idx} 	= cell2mat(raw(data_starts(daten_idx):data_ends(daten_idx),3:end));
+								disp('Envision data file detected! (or special case: test data)')
+								mess_ 	= cell2mat(raw(data_starts(daten_idx):data_ends(daten_idx),3:end));
+							end
+							
+							% this IF-ELSEIF loop will fail with non-numerical values (and continue below in TRY-CATCH) ...
+							weight					= ones(size(mess_)); % if everything was imported this weight is correct, otherwise it will be re-created in the TRY-CATCH below
+							% ... but if excel cells are empty this will be converted to NaNs which is (in Matlab) an numerical value. So
+							% raise the error manually:
+							if any(any(isnan(mess_)))
+								error('MATLAB:cell2mat:MixedDataTypes','MATLAB:cell2mat:MixedDataTypes');
 							end
 							
 						catch ME
 							
-							if device_envision
-								error('Error while reading data')
-							end
+ 							if strcmp(ME.identifier, 'MATLAB:cell2mat:MixedDataTypes')							
 							
-							uiwait(msgbox(['There are OVERFLW values within the imported data! Those will be replaced now by the average ' ...
-								'of the adjacent values. Please chech the results!'],'','modal'))
-							% This error should not occur any longer. This happened only, if the second measurement set
-							% in the file was used ("[Lum2]") which was already modified (amplified) by the device software
-							
-							if strcmp(ME.identifier, 'MATLAB:cell2mat:MixedDataTypes')
+								mbox_h = my_msgbox(['There are OVERFLW (or other non-numerical) values within the imported data! You can choose ' ... 
+									'between marking these as gaps or to be replaced by the average of the adjacent values (only allowed for solitary entries)'],12);
+								uiwait(mbox_h);
 								
-								dummy	= raw(data_starts(daten_idx)+1:data_ends(daten_idx),4:end); %
-								idx		= find(cellfun(@ischar, dummy));
+								% Let user decide to fill in the gaps (like in previous versions) or to mark the elements as missing (setting weighting factor to zero)							
+								% Only single gaps should be filled by an average, if the user opts for it! Because, this is tampering with data .... generally, a bad idea
+
+								answer = questdlg('Set gaps in time-series or replace them by calculated averages?','Non-numerical values found', 'Set gaps', 'Replace by average' , 'Set gaps'); 
 								
-								for i = 1:numel(idx)
-									
-									if idx(i) == 1 && idx(i+1) ~= 2
-										% if only the first entry reads OVERFLW, and the second not, just take the next value
-										dummy(1) = dummy(2);
-									elseif idx(i) == numel(dummy) && idx(i-1) ~= (numel(dummy)-1)
-										% ToDo: Same kind of problem if last entry is missing; use second-to-last
-										
-									elseif idx(i) > 1 && idx(i) < numel(dummy)
-										% entry between start and end: Just calculate the mean (user was
-										% informed about this work-around above)
-										dummy(idx(i)) = {round(mean([dummy{idx(i)-1},dummy{idx(i)+1}]))};
-									else
-										uiwait(msgbox('There are OVEFLW values at the beginning or the end of the data. Please edit the file before using the ChronAlyzer again.','','modal'))
-										error('There are OVERFLW entries in the data files which can''t be corrected automatically!');
-									end
-									
+								% find all non-numerical entries
+								if device_BioTek
+									mess_	= raw(data_starts(daten_idx)+1:data_ends(daten_idx),4:end); % use "raw" to get all kinds of entries
+								elseif device_envision
+									mess_	= raw(data_starts(daten_idx)+1:data_ends(daten_idx),3:end); % use "raw" to get all kinds of entries
+								else
+									error('unknown device type (error code "973")');
 								end
 								
-								raw(data_starts(daten_idx)+1:data_ends(daten_idx),4:end) = dummy;
-								mess_{daten_idx} = cell2mat(raw(data_starts(daten_idx)+1:data_ends(daten_idx),4:end));
+								idx	= find(cellfun(@ischar, mess_));
 								
+								switch answer
+									case 'Set gaps'
+										
+										% replace invalid entries by "-1" and set matrix with weighting factors accordingly
+										
+										mess_(idx)	= {-1};
+										weight		= ones(size(mess_));
+										weight(idx) = 0;
+										
+									case 'Replace by average'
+										
+										weight		= ones(size(mess_));
+										
+										for i = 1:numel(idx)
+											if idx(i) == 1 && idx(i+1) ~= 2
+												% if only the first entry reads OVERFLW, but the second not, just take the next value
+												mess_(1)	= mess_(2);
+												weight(1)	= 0.5; % reduce weighting factor for this artificial value
+											elseif idx(i) == numel(mess_) && idx(i-1) ~= (numel(mess_)-1)
+												% Same kind of problem if last entry is missing but not that before that; use second-to-last
+												% value
+												mess_(end)	= mess_(end-1);
+												weight(end)	= 0.5; % reduce weighting factor for this artificial value
+											elseif idx(i) > 1 && (i > 1 && diff([idx(i-1) idx(i)]) > 1) && (i == numel(idx) || (i < numel(idx) && diff([idx(i) idx(i+1)]) > 1))
+												% entry between start and end AND only one consecutive missing entry : Just calculate the mean
+												mess_(idx(i)) = round(mean([mess_(idx(i)-1),mess_(idx(i)+1)]));
+												weight(idx(i)) = 0.5;
+											else
+												uiwait(msgbox('There are consecutively OVERFLW values in the time-series. Please restart ChronAlyzer and mark this gaps or edit the file.','','modal'))
+												error('There are consecutively OVERFLW entries in the data files which can''t be corrected automatically!');
+											end
+										end
+										
+									otherwise
+								end
+								
+							else
+								% there was another error ...
+								rethrow(ME)
 							end
 							
 						end % try catch
 						
 						
-						% BioTec device software always writes 96 wells into file: Delete unused wells.
+						% BioTek device software always writes 96 wells into file: Delete unused wells.
 						
 						% Note: The developement for ChronAlyzer was for Mithras device only at the beginning.
-						% It would have been better to use the BioTec layout from the beginning. ToDo: Rewrite software
-						% (Always use a complete 96 matrix (8x12) ...)
+						% It would have been better to use the BioTek layout from the beginning. 
+						% ToDo: Rewrite software!
+						% Here: Always use a complete 96 matrix (8x12) ...
 						
 						del_idx = [];
 						
-						if size(mess_{1},2) < 96
-							disp('test data detected! (otherwise at least 96 well entries were expected)')
-							for spalte_idx = 1:size(mess_{1},2)
-								del_idx = [del_idx, all(isnan(mess_{1}(:,spalte_idx)))];
+						if size(mess_,2) < 96
+							
+							disp('Possibly test data detected! (otherwise at least 96 well entries were expected)')
+							
+							for spalte_idx = 1:size(mess_,2)
+								del_idx = [del_idx, all(isnan(mess_(:,spalte_idx)))];
 							end
+							
 							% data matrix doesn't have to be filled, because it will be shrinked anyway
 							
 						else
 							
 							for spalte_idx = 1:96
-								del_idx = [del_idx, all(isnan(mess_{1}(:,spalte_idx)))];
+								del_idx = [del_idx, all(isnan(mess_(:,spalte_idx)))];
 							end
 							
 						end
-						mess_{1}(:,logical(del_idx))	= []; % remove empty columns
-						name(logical(del_idx))			= [];
+			
+						
+						% mess_{1}(:,logical(del_idx))	= []; % remove empty columns
+						
+						
+						if any(del_idx)
+						
+							name(logical(del_idx))			= [];
+							
+						end
 						
 						if ~device_envision
-							read_titel(daten_idx)			= txt(6,2);
+							read_titel(daten_idx)		= txt(6,2);
 						else
-							read_titel(daten_idx)			= fname(daten_idx);
+							read_titel(daten_idx)		= fname(daten_idx);
 						end
 						
 						% Important check: Are there measurement for all wells for all times? If not, there will be errors
@@ -994,12 +1075,12 @@ function result = ChronAlyzer()
 						% ToDo: Whole measurement data matrix system must be checked or better
 						% be reworked (in particular if non-96 well plates are introduced)
 						
-						dummy	= any(cell2mat(cellfun(@isnan, mess_,'UniformOutput',false)),2);
+						dummy	= any(cell2mat(arrayfun(@isnan, mess_,'UniformOutput',false)),2);
 						
 						if any(dummy)
 							
-							mess_{1}(dummy,:)	= [];
-							t(dummy)			= [];
+							mess_{1}(dummy,:)	= []; % ToDo: (important) program as to be re-worked, and reducing matrix size should be avoided (instead set values of weighting factor to zero for example)
+							t(dummy)			= []; % ToDo: (important) program as to be re-worked, "t" should be equidistant, so this deletion should be avoided
 							
 							uiwait(msgbox(['There are empty rows (or at least some cells in those rows are empty) in the file "' fname{file_idx} ...
 								'". Perhaps caused by a manually stop of the experiment. All data in these rows are about to be ignored. But this ' ...
@@ -1007,93 +1088,43 @@ function result = ChronAlyzer()
 								'in question before starting the ChronAlyzer again.'],'','modal'))
 							
 						end
+						
+						% "reshape" temporary mess_ vector into shape of all previous time-series:
+						mess_		= fit_meas2vector(mess_, t_old_in, t);
+						
 					end
 					
-				end % schleife über alle Dateien
-				
-				if anz_reads > 1 % this variable is > 1 only if there are multiple data sets within one file (only ever noticed with Mithras (I think))
+				end % loop on all data within a single file
+
+				% ===============================================================================================================
+				%
+				%    Now, add "mess_" into the 3-d "mess"
+				%
+				% ===============================================================================================================
+				if anz_reads == 1 % only one time-series within the current file
 					
-					a = ['1. Datensatz = ' read_titel{1} ' - ' read_titel{2}];
-					b = ['2. Datensatz = ' read_titel{2} ' - ' read_titel{1}];
-					
-					% ToDo: Documentation is needed for this question - I can't remember since we don't use the Mithras device
-					% anymore (since several years)
-					answer = questdlg('Which set of data do you want to modify?','Modification',a, b, a);
-					
-					switch answer
-						case a
-							mess_{1} = mess_{1} - mess_{2};
-						case b
-							mess_{2} = mess_{2} - mess_{1};
-					end
-					
-					mess(:,:,1) = mess_{1}';
-					mess(:,:,2) = mess_{2}';
-					
-				else
-					
-					mess_ = mess_{1}';
+					%mess_ = mess_'; % ToDo: check, if this is needed
 					
 					if file_idx == 1
 						
 						mess = NaN(size(mess_,1),size(mess_,2),file_anz);
 						
 					end
-					
-					
-					% ToDo: Maybe this IF-ELSE-THEN is obsolete, I have to check biological and technical replicates were handled
-					% differently in early versions of ChronAlyzer
-					
-					if strcmp(replicate_mode, 'tech')
 						
-disp('This should not be called anymore!')
-keyboard	
+					if strcmp(replicate_mode, 'biol')
 						
-						if any(size(mess(:,:,1)) ~= size(mess_))
-							
-							msgbox(['Error: To make use of technical replicates, data files must be structured in the same way:' CR ...
-								'Same used wells and same measurement times!'],'','modal')
-							
-							if size(mess_,2) ~= size(mess(:,:,1),2)
-								
-								msgbox(['Time range of experiment in file "' fname{file_idx} '" doesn''t fit; I am trying to shorten measurements! Please check results carefully!'],'','modal')
-								
-								if size(mess_,2) > size(mess(:,:,1),2)
-									
-									mess_	= mess_(:,1:size(mess(:,:,1),2),1);
-									t		= t(1:size(mess,2));
-									
-								else
-									
-									mess	= mess(:,1:size(mess_(:,:),2),1);
-									
-								end
-								
-							else
-								
-								error('Proably user error (code: "No technical replicates were selected")')
-								
-							end
-						end
-						
-						mess(:,:,file_idx) = mess_;
-						
-					elseif strcmp(replicate_mode, 'biol')
-						
-						if file_idx == 1
-							
-							mess = NaN(96,size(mess_,2),file_anz);
-							
-						elseif size(mess(:,:,1),2) ~= size(mess_,2) % different time-series lengths!
+						if file_idx > 1 && size(mess(:,:,1),2) ~= size(mess_,2) % different time-series lengths!
 							
 							uiwait(msgbox(['The selected data files contain data sets of different sizes (-> number of measurements)', CR ...
 								'Only identical measurements can be merged! Please check your file selection!' CR ...
 								'Now, without further checks, the data sets are constrained to the shortest common test duration!!'], '','modal'));
 							
+							% ToDo (Important): Check first equidistance of current time vector ("t"), otherwise this may severely fail
+							
 							if size(mess,2) > size(mess_,2) % New file's time-series is shorter, shorten previous files
 								
 								mess	= mess(:,1:size(mess_,2),:);
-								% don't need to fill "t" again, because this is not the first file and "t" must be the same for all
+								% don't need to fill "t" again, because this current file is not the first file and "t" must be the same for all
 								
 							elseif size(mess,2) < size(mess_,2) % new file's time-series is longer, cut this one according to previous "t"
 								
@@ -1108,23 +1139,49 @@ keyboard
 						
 					else % case if no replicate group was used, neither biological nor technical
 						
-						if file_anz > 1
-							error('I am sorry, this should have not occured (error code: "f_anz > 1"')
-						end
+% 						if file_anz > 1
+% 							error('I am sorry, this should have not occured (error code: "1201"')
+% 						end
 						
-						if size(mess_,1) == 96
-							mess = wellname_pos(mess_, name); % respects the order of wells in file
+						if size(mess_,2) == 96
+							mess(:,:,file_idx) = wellname_pos(mess_, name); % respects the order of wells in file
 						else
-							mess = mess_;
+							error('Sorry, this should have not occured (error code: "1143") - please contact author')
+							mess(:,:,file_idx) = mess_;
 						end
 						
 					end
 					
 					clear mess_;
-					
-				end
 				
-			otherwise
+				else % anz_reads > 1 -> true only if there are multiple data sets within one file (only ever noticed with Mithras (I think))
+					
+					mbox_h = my_msgbox(['There are more than one time-series in this file. Please consider to seperate these into several files.' ...
+						'This option was thought to conduct some on-the-fly calculations for exactly two time-series within one (and only one) file. ' ... 
+						'Please beware: This is an "antique" part of the code.'],12);
+					uwait(mbox_h);
+					
+					a = ['1. Datensatz = ' read_titel{1} ' - ' read_titel{2}];
+					b = ['2. Datensatz = ' read_titel{2} ' - ' read_titel{1}];
+					
+					% ToDo: Documentation is needed for this question - I can't remember since we don't use the Mithras device
+					% anymore (since several years)
+					% It was used for different wave-length detections, I suppose
+					answer = questdlg('Which set of data do you want to modify?','Modification',a, b, a);
+					
+					switch answer
+						case a
+							mess_{1} = mess_{1} - mess_{2};
+						case b
+							mess_{2} = mess_{2} - mess_{1};
+					end
+					
+					mess(:,:,1) = mess_{1}';
+					mess(:,:,2) = mess_{2}';
+					
+				end % if anz_read
+				
+			otherwise  % -------------------------------------------------------------------
 				
 				warning(['unknown file type: "' fname{file_idx} '"']);
 				continue
@@ -1136,14 +1193,11 @@ keyboard
 			uiwait(msgbox('The imported files do not contain time series or at least too few measurements!','','modal'))
 			error('The imported files do not contain time series?!');
 		end
+
 		
-		[~,filename,~] = fileparts(fname{1});
-		
-		% ToDo:
-		% check for equidistant measurement times create a global weighting factor vector, and set the value to zero
-		% when a measurement is missing (or is later declared as a 'noisy peak' by the user).
-		
-		
+		% ToDo (important): change "weight" to 3-D also, according to "mess"
+
+				
 %% Import Layout (only once, when importing the first file) -- (still inside loop)
 		
 		if file_idx == 1
@@ -1151,12 +1205,8 @@ keyboard
 			OK = false;
 			while ~OK
 				
-				mbox_h = msgbox(['Next: Please select a) a data file with the used wells layout (if not available press cancel), ' ...
-					'b) then select the Excel cells containing the labels of each well AND the row and column with labels (A-H, 1-12)'],'Annotation file?' ,'modal');
-				
-				child					= get(findobj(mbox_h,'type','Axes'),'Children');
-				child.FontSize			= 10;
-				mbox_h.OuterPosition(3) = 350;
+				mbox_h = my_msgbox(['Next: Please select a) a data file with the used wells layout (if not available press cancel), ' ...
+					'b) then select the Excel cells containing the labels of each well AND the row and column with labels (A-H, 1-12)'],12);				
 				
 				timed = timer('ExecutionMode','singleShot','StartDelay',5,'TimerFcn',@(~,~)myclose(mbox_h));
 				% auto time-out
@@ -1235,7 +1285,7 @@ keyboard
 			
 		end
 		
-	end
+	end % loop ends after all selected files are imported
 
 
 %% some clean-up after all data are imported (loop end)
@@ -1268,9 +1318,11 @@ keyboard
 	% check again
 	if any(any(diff(reshape(cell2mat(cellfun(@size,name,'UniformOutput',false))',2,numel(name)),2,2)))
 		uiwait(msgbox('Error: Imported well descriptions are not in the anticipated format (e.g. "B05")','','modal'));
-		error('Imported well descriptions are not in the anticipated format (error code 1121)')
+		error('Imported well descriptions are not in the anticipated format (error code 1363)')
 	end
 
+	[~,filename,~] = fileparts(fname{1}); % take this file name as title for analysis
+	
 	% ===================================================================================
 	% Outcome of this section (as stated at the beginning of the big loop):
 	% "t":		contains a vector of measuring times (valid for all measurements!)
@@ -1292,7 +1344,7 @@ keyboard
 	
 	% ===============================================
 
-%% "Considering" of biological replicates
+%% Viewing of biological replicates
 
 	% General idea of work-flow: If biological replicates are loaded, these are not averaged immediately (in contrast to technical replicates)
 	% Still, it might be interesting to see the difference between several plates
@@ -1360,8 +1412,7 @@ keyboard
 		end
 		f.NumberTitle	= 'off';
 
-		%[subplot_x,subplot_y] = calc_subplot(size(mess,1));		-- kann
-		%man vielleicht für variable Plattengrößen verwenden ..
+		%[subplot_x,subplot_y] = calc_subplot(size(mess,1)); % ToDo: This is obsolete, but perhaps can be used for variable plate sizes 
 		
 		subplot_x	= 12;
 		subplot_y	= 8; 
@@ -1380,9 +1431,9 @@ keyboard
 				plot(t,mean(mess(k,:,:),3,'omitnan'),'k:',t,mean(mess(k,:,:),3,'omitnan')+stdabw(k,:),'k-', ...
 					t,mean(mess(k,:,:),3,'omitnan')-stdabw(k,:),'k-'); % "mean" ist für biol.-Repl.-Fall !
 
-				k_to_name = k; % Matrix wurde geändert, so stimmt es jetzt für biotec
+				k_to_name = k; % Matrix was changed, since we used BioTek device
 				title([name{k_to_name} ],'fontsize',8);
-				if i == subplot_x % ToDo: Falls unterste Zeile nicht voll, müsste Unterschrift in vorletzte Zeile
+				if i == subplot_x % ToDo: If lowest row is not full, xlabel had to be moved to second-to-last row
 					xlabel('t [h]')
 				end
 				
@@ -1395,12 +1446,13 @@ keyboard
 		 
 				curax			= gca;
 				curax.XLim(2)	= t(end);
-				if any(stdabw(k,:)) > 0 && (max(mean(mess(k,:,:),3,'omitnan')+stdabw(k,:)) > min(mean(mess(k,:,:),3,'omitnan')-stdabw(k,:))),
-					% ansonsten sind die Daten der Wells vermutlich einfach
-					% leer
+				
+				if any(stdabw(k,:)) > 0 && (max(mean(mess(k,:,:),3,'omitnan')+stdabw(k,:)) > min(mean(mess(k,:,:),3,'omitnan')-stdabw(k,:)))
+					% if not, the wells are probably missing data
 					curax.YLim(2)	= max(mean(mess(k,:,:),3,'omitnan')+stdabw(k,:));
 					curax.YLim(1)	= min(mean(mess(k,:,:),3,'omitnan')-stdabw(k,:));
 				end
+				
 				curax.FontSize	= 6;
 				
 			end
@@ -1414,25 +1466,28 @@ keyboard
 
 		figure(f);
         
-        help_text = uicontrol('Style','text','fontsize',11, ...
-			'String','Averaged and standard deviation from all biological replicates are shown here, not individual time series!','units','normalized','Position',[.05,.935,.5,.05]);
+        help_text = uicontrol('Style','text','fontsize',11, 'String', ['The average and standard deviation from all biological ' ...
+			'replicates are shown here, not individual time series!'],'units','normalized','Position',[.05,.935,.5,.05]);
         
-		hbestaetigt = uicontrol('Style','pushbutton','backgroundcolor',[0 1 0],'fontsize',12, ...
-			'tooltip','From now on: Averaged value will be used instead of individual technical replicates.', ...
-			'String','Using the averaged values (displayed as dashed line) from now on','units','normalized','Position',[.55,.95,.4,.04],'Callback',{@OK_Button_Cb});
+		hbestaetigt = uicontrol('Style','pushbutton','backgroundcolor',[0 1 0],'fontsize',12, 'tooltip', ...
+			'Only standard deviation and average is shown, NOT the individual time-series!', 'String', ...
+			'I have noticed the standard deviations, continue ...','units','normalized','Position',[.55,.95,.4,.04],'Callback',{@OK_Button_Cb});
 	
 		
 		if strcmp(replicate_mode, 'biol')
 			
-			hbestaetigt.String	= 'User acknowledged standard deviations, continue ...';
-			mess				= full_mess;	% Stelle vollständige Matrix wieder her
+			mess				= full_mess;	% after displaying standard deviation, use complete matrix again
 			
 		end
 		
+		
 		OK = false;
+		
 		while ~OK
+			
 			pause(0.2)
 			drawnow
+			
 			if ~ishandle(f)
 				answer = questdlg('Really abort?','','Yes','No','No');
 				if strcmp(answer, 'Yes')
@@ -1451,9 +1506,11 @@ keyboard
 		
 	end
 	
-	OK = false; % restore default value
+	
 	
 %% Aufbau der GUI 
+
+	OK = false; % restore default value (even if last loop was left by a "break" commanc)
 
 	mainfig_max		= min([1200 monitor(4)-50]); % 1280
 	mainfig_max		= 1025;
@@ -1461,6 +1518,8 @@ keyboard
 
 	old_fig = findobj(0,'tag','Table');
 
+
+	% create main gui figure
 	if isempty(old_fig)
 
 		tabelle_fig_h = figure;
@@ -1474,9 +1533,6 @@ keyboard
 		
 		panel		= uipanel('position',[0 -1 0.985 1],'Tag','uipanel');	
 		vscrollbar	= uicontrol('style','slider','units','normalized','position',[.985 0 .015 1],'value',1,'Tag','uiscroll','callback',@vscroll_Callback);
-		% Alle Komponenten müssen an das "panel" angebunden werden, zB:
-		% uicontrol('parent',panel,'style','text','string','test')
-		%           ^^^^^^^^^^^^^^	
 		
 		xlim([0 1]);
 		ylim([0 1]);
@@ -1884,14 +1940,14 @@ keyboard
 						set(check_h(j),'Enable','on');
 					end
 				end
-
+% Note: mess(measurement#, well, plate)
 				% Berechne Werte für "vollständige" Replikatgruppe
 				if strcmp(replicate_mode,'biol')
 					% Überprüfe, ob auf aktueller Platte die ausgewählten Wells gefüllt sind
 					
 					checkbox_platte{file_idx, replgr_id} = checkbox_idx_in_replgr{replgr_id};
 					for j = checkbox_platte{file_idx, replgr_id}(end:-1:1)
-						if isnan(mess(j,1,file_idx))
+						if isnan(mess(1,j,file_idx)) % first measurement data in this well (j)
 							checkbox_platte{file_idx, replgr_id}(find(j == checkbox_platte{file_idx, replgr_id})) = []; % Dieses Well ist auf dieser Platte leer
 						end
 					end
@@ -1900,13 +1956,13 @@ keyboard
 						mittelwerte(replgr_id,:) = NaN;
 					else
 						anz_in_replgr_auf_Platte = numel(checkbox_platte{file_idx, replgr_id});
-						mittelwerte_ = sum(mess(checkbox_platte{file_idx, replgr_id} ,:,file_idx),3,'omitnan') / anz_in_replgr_auf_Platte; % "omitnan" wichtig!
+						mittelwerte_ = sum(mess(:,checkbox_platte{file_idx, replgr_id} ,file_idx),3,'omitnan') / anz_in_replgr_auf_Platte; % "omitnan" wichtig!
 						mittelwerte(replgr_id,:) = sum(mittelwerte_,1);
 					end
 					
-				else
-					
-					mittelwerte(replgr_id,:)				= sum(mess(checkbox_idx_in_replgr{replgr_id} ,:),1) / anz_in_replgr;	
+				else % only a single plate was selected
+
+					mittelwerte(replgr_id,:)				= sum(mess(:,checkbox_idx_in_replgr{replgr_id}) ,2) / anz_in_replgr;	
 					checkbox_platte{file_idx, replgr_id}	= checkbox_idx_in_replgr{replgr_id};
 					
 				end
@@ -1946,7 +2002,7 @@ keyboard
 
 				sub2_h					= subplot(2,1,2);
 				if ~isempty(mittelwerte(replgr_id,:))				
-					error_plot_h			= plot(t,zeros(size(mittelwerte(replgr_id,:))));
+					error_plot_h		= plot(t,zeros(size(mittelwerte(replgr_id,:))));
 				end
 				e_axis					= gca;
 				e_axis.Title.String		= 'Squared error: Difference to average';
@@ -1977,8 +2033,8 @@ keyboard
 						end
 						
 						for ii = checkbox_temp
-							err						= [err; (mess(ii,:, file_idx) - mittelwerte(replgr_id,:)).^2 ];
-							multiplot_Samples_h(ii) = plot(mw_axis, t,mess(ii,:, file_idx));
+							err						= [err; (mess(:,ii, file_idx) - mittelwerte(replgr_id,:)).^2 ];
+							multiplot_Samples_h(ii) = plot(mw_axis, t,mess(:,ii, file_idx));
 							hold on
 							set(multiplot_Samples_h(ii),'ButtonDownFcn',{@Mouse_Select_CB});
 						end
@@ -2038,7 +2094,7 @@ keyboard
 									end
 									
 									if sum(plot_on) > 0
-										mittelwerte(replgr_id,:) = sum(mess(checkbox_temp(plot_on),:, file_idx),1) / numel(checkbox_temp(plot_on));
+										mittelwerte(replgr_id,:) = sum(mess(:,checkbox_temp(plot_on), file_idx),1) / numel(checkbox_temp(plot_on));
 									else
 										mittelwerte(replgr_id,:) = NaN(size(t));
 									end
@@ -2050,7 +2106,7 @@ keyboard
 										err = [];
 										
 										for ii = checkbox_temp(plot_on)
-											err = [err; (mess(ii,:, file_idx) - mittelwerte(replgr_id,:)).^2 ];
+											err = [err; (mess(:,ii, file_idx) - mittelwerte(replgr_id,:)).^2 ];
 										end
 										
 										err = sum(err,1);
@@ -2106,10 +2162,10 @@ keyboard
 						if ~isempty(checkbox_temp)
 							tmp												= checkbox_temp(plot_on);
 							if isempty(tmp)
-								error('Please do not de-select all wells! (error code 2095)')
+								error('Please do not de-select all wells! (error code 2205)')
 							end
 							selected_checkbox_in_replgr						= tmp(1);
-							mess(selected_checkbox_in_replgr,:, file_idx)	= mittelwerte(replgr_id,:);
+							mess(:,selected_checkbox_in_replgr, file_idx)	= mittelwerte(replgr_id,:);
 							checkbox_idx									= [];
 							if iscell(checkbox_platte)
 								checkbox_platte{file_idx, replgr_id}	= tmp(1); 
@@ -2400,13 +2456,13 @@ keyboard
 							% [fit_param_, Abbruch, Options] = findChronoParameter(t,mess(i,:,file_idx), ...
 							% 	[sample_name ' - Replikat ' num2str(file_idx)], mittelwerte(checkbox_replgr(i),:), Options);
 							
-							[fit_param_, Abbruch, Options] = findChronoParameter(t,mess(i,:,file_idx), ...
-								[sample_name ' - plate (replicate) No.: ' num2str(file_idx)], mess(checkbox_platte{file_idx, replgr_id} ,:,file_idx), Options);
+							[fit_param_, Abbruch, Options] = findChronoParameter(t,mess(:,i,file_idx), ...
+								[sample_name ' - plate (replicate) No.: ' num2str(file_idx)], mess(:,checkbox_platte{file_idx, replgr_id},file_idx), Options);
 							
 							
 						else
 							
-							[fit_param_, Abbruch, Options] = findChronoParameter(t,mess(i,:,file_idx), ...
+							[fit_param_, Abbruch, Options] = findChronoParameter(t,mess(:,i,file_idx), ...
 								[sample_name ' - plate (replicate) No: ' num2str(file_idx)], NaN, Options);
 
 						end
@@ -2419,7 +2475,7 @@ keyboard
 						
 					else
 						
-						[fit_param, Abbruch, Options] = findChronoParameter(t,mess(i,:), sample_name, ...
+						[fit_param, Abbruch, Options] = findChronoParameter(t,mess(:,i), sample_name, ...
 							NaN, Options);
 						
 						% fit_param.Pha	= fit_param.Pha * 60; % Umrechnung von [h] in [min]
@@ -2499,7 +2555,7 @@ keyboard
 				
 %% --- Ausgabe der Ergebnisse
 
-					if device_biotek || device_envision % quick but dirty ...
+					if device_BioTek || device_envision % quick but dirty ...
 						Sort_A_Cb(); % sonst ist Reihenfolge in Tabelle bei Ausgabe falsch
 					end
 						
@@ -2857,7 +2913,7 @@ keyboard
 		
 	end
 	
-	result = Options.result; % Does subfunctions work as intended?
+	result = Options.results; % Does subfunctions work as intended?
 	
 	
 %% clean up GUI before regular program termination
@@ -3479,7 +3535,7 @@ keyboard
 
 		if ~num_sorted
 			
-			if device_biotek || device_envision
+			if device_BioTek || device_envision
 				s_idx = asort(name);
 				s_idx = s_idx.aix;
 				
@@ -3761,12 +3817,12 @@ keyboard
 			%	image_ = (mod(image-1,8)*12+1+floor((image-1)/8));
 			%end
 			
-            plot(t,mess(image_,:,1));
+            plot(t,mess(:,image_,1));
 
             if strcmp(replicate_mode,'biol')
                 hold on
-                for g = 2:size(mess(image_,:,:),3)
-                    plot(t,mess(image_,:,g));
+                for g = 2:size(mess(:,image_,:),3)
+                    plot(t,mess(:,image_,g));
                 end
                 quick_figure_str = [quick_figure_str ' - biological replicate'];
                 legend(fname,'interpreter','none')
@@ -4116,7 +4172,7 @@ keyboard
 % 						
 % 					end
 % 					
-% 				else % wenn biotec-Daten, dann ...
+% 				else % wenn BioTek-Daten, dann ...
 % 					
 % 					for i = 0:7,
 % 						for j = 0:11,
@@ -4173,7 +4229,7 @@ keyboard
 % 						figure(f)
 % 					end
 % 					
-% 				end % biotec oder nicht
+% 				end % BioTek oder nicht
 % 				
 % 				dummy = get(gcf,'Children'); 
 % 				set(dummy,'YLim',[miny_fig maxy_fig]); %Alle mit gleicher Y-Achse zeigen
@@ -4226,7 +4282,7 @@ function result = show_Thumbnails()
 				f					= figure;
 				f.Position			= [450-5*file_idx 250-5*file_idx 560*1.75 373*1.75];
 				f.Tag				= ['Well-GUI:' filename];
-				f.Name				= [filename ' (identical scaled)'];
+				f.Name				= ['"' filename '" (identical scaled)'];
 				f.UserData			= 'Thumbnail';		
 				
 				rectangle('position',[0 0 12 8]); % Rahmen
@@ -4269,9 +4325,9 @@ function result = show_Thumbnails()
 								% for g = 2:size(mess(image,:,:),3)
 								% 	plot(t,mess(image,:,g));
 								% end
-								dummy = plot(t,mess(image_idx,:,file_idx));
+								dummy = plot(t,mess(:,image_idx,file_idx));
 							else
-								dummy = plot(t,mess(image_idx,:,1));
+								dummy = plot(t,mess(:,image_idx,1));
 							end
 							
 							if maxy_fig < max(dummy.Parent.YLim)
@@ -4294,7 +4350,7 @@ function result = show_Thumbnails()
 						
 					end
 					
-				else % wenn biotec- oder Envision-Daten, dann ...
+				else % wenn BioTek- oder Envision-Daten, dann ...
 					
 					for i = 0:7
 						for j = 0:11
@@ -4305,8 +4361,7 @@ function result = show_Thumbnails()
 							
 							if isempty(cellstrfind(name, [char(65+i),repmat('0',2-numel(num2str(j+1)),1), num2str(j+1)],'exakt'))
 
-								% Es sind nicht immer alle Wells belegt, die
-								% leeren einfach überspringen
+								% Es sind nicht immer alle Wells belegt, die leeren einfach überspringen
 								sp.XAxis.Visible	= 'off';
 								sp.YAxis.Visible	= 'off';							
 								% sp.Position			= sp.Position+[-.01 -.02 +.01 +0.02];
@@ -4318,7 +4373,7 @@ function result = show_Thumbnails()
 
 							end
 							
-							image_idx = image_idx +1;
+							image_idx = image_idx + 1;
 							hold on
 
 							if strcmp(replicate_mode,'biol')
@@ -4328,9 +4383,9 @@ function result = show_Thumbnails()
 								% for g = 2:size(mess(image,:,:),3)
 								% 	plot(t,mess(image,:,g));
 								% end
-								dummy = plot(t,mess(image_idx,:,file_idx));
+								dummy = plot(t,mess(:,image_idx,file_idx));
 							else
-								dummy = plot(t,mess(image_idx,:,1));
+								dummy = plot(t,mess(:,image_idx,1));
 							end
 
 							if maxy_fig < max(dummy.Parent.YLim)
@@ -4351,7 +4406,7 @@ function result = show_Thumbnails()
 						figure(f)
 					end
 					
-				end % biotec oder nicht
+				end % BioTek oder nicht
 				
 				dummy = get(gcf,'Children'); 
 				set(dummy,'YLim',[miny_fig maxy_fig]); %Alle mit gleicher Y-Achse zeigen
@@ -4505,9 +4560,9 @@ function result = show_Thumbnails()
 	function big_meas = wellname_pos(mess_, name)
 		% this function helps to transfer a not completely filled matrix into a complete 96-matrix
 		
-		big_meas = NaN(96, size(mess_,2));
+		big_meas = NaN(size(mess_,1),96); % ToDo: re-work needed for different plate sizes
 		
-		for i = 1:size(mess_,1)
+		for i = 1:size(mess_,2)
 			
 			% Note: this layout is used:
 			% big_meas (96 table) contains in first column and row: "A01"
@@ -4515,7 +4570,7 @@ function result = show_Thumbnails()
 			% ... "A02" in 9. row ...
 			
 			position				= wellname2tablerow(name{i});
-			big_meas(position,:)	= mess_(i,:);
+			big_meas(:,position)	= mess_(:,i);
 			
 		end
 			
@@ -4701,10 +4756,70 @@ function result = show_Thumbnails()
 		% calling code lines above
 			f_all_new = findall(0,'Type','figure');
 			f_diff = setdiff(f_all_new,f_all);
-			if ishandle(f_diff),
+			if ishandle(f_diff)
 				close(f_diff);
 			end
+	end
+
+	function d_t = get_delta_t(t)
+
+		% perhaps "t" is already equidistant?
+		t_diff = unique(diff(t));
+		
+		if numel(t_diff) == 1
+			% yes, so that's easy now
+			d_t = t_diff;
+		else
+			% okay, not so easy, hopefully the times in the data files are written too precisely, so let's start with some rounding first
+			t_diff = unique(diff(zeitrunden(t)));  % rounding to approx. 2 minutes. 
 		end
+
+		if numel(t_diff) == 1 % is it now ok?
+			% yes!
+			d_t = t_diff;
+		else
+			% now, it's getting complicated: This can happen, if some maybe even adjacent measurements were missing. Or the whole experiment
+			% was measured manually. This would be nasty, because the whole concept in the algorithm would not work, then.
+			% So let's assume there are just some measurements missing and let's find the most common time distance between measurement:
+			d_t = median(diff(zeitrunden(t)));
+			% ToDo: Maybe add some user interaction to make sure this is the correct approach here?
+		end
+
+
+	end
+
+	function [t_out, t_old_out] = fit_t2vector(t_in, d_t)
+					
+	% This function creates a equidistant time vector, that means, that all time value are equally distant (e.g. "0.0, 0.5, 1.0, 1.5, 2.0, ..."
+	
+		t_out		= 0:d_t:t_in(end);
+		t_old_out	= t_in;
+	
+	end
+
+	function m_out = fit_meas2vector(mess_in, t_old_in, t_new_in)
+					
+	% This function creates a new measurement matrix, corresponding to the equidistant time vector, thus creating new rows if needed
+	
+		m_out = NaN .* mess_in;
+		
+		for i = 1:numel(t_old_in)
+		
+			m_out(find(t_old_in(i)==t_new_in),:) = mess_in(i,:);
+			
+		end
+
+		
+	end
+
+	function g_handle = my_msgbox(txt_str,font_size)
+		% msgbox with adjustable fontsize, re-sizes msgbox window
+		g_handle						= msgbox(txt_str);
+		child							= get(findobj(g_handle,'type','Axes'),'Children');
+		child.FontSize					= font_size;
+		[dimension]						= child.Extent;
+		g_handle.OuterPosition([3 4])	= [dimension(3)+20 dimension(4)+70];
+	end
 
 
 end

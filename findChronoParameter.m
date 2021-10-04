@@ -111,10 +111,10 @@ end
 	else
 		Options.ausreisser_flag		= true;
 	end
-	if isfield(Options_in,'Basislinienoption')
-		Options.Basislinienoption	= Options_in.Basislinienoption;
+	if isfield(Options_in,'BaseLineOption')
+		Options.BaseLineOption	= Options_in.BaseLineOption;
 	else
-		Options.Basislinienoption	= 100;
+		Options.BaseLineOption	= 100;
 	end
 
 	if isfield(Options_in,'time_weight')
@@ -433,7 +433,7 @@ end
 	
 	% Auf was soll das Fitting angewendet werden?
 	
-	if Options.Basislinienoption == 1 % Method "e-Funktion"
+	if Options.BaseLineOption == 1 % Method "e-Funktion"
 
 		% THIS BRANCH WON'T BE DEVELOPED FURTHER
 		X0_Basis 	= [Y(1), 0.02, 0]; %, 1000]; % Start, Damping, Offset P1
@@ -477,7 +477,7 @@ end
 		if true % ToDo: create option to switch between both methods
 			disp('Calculate drift approximation - method 1: Moving Horizon Average')
 
-			if Options.Basislinienoption == 10 % Methode: Normiert
+			if Options.BaseLineOption == 10 % Methode: Normiert
 				% alle Messdaten werden zunächst auf den ersten Datenpunkt (der gewählten) Range normiert
 				% da ydata schon verkürzt wurde, sind idx nicht mehr notwendig
 				y_mess_korr	= y_gefiltert ./ y_gefiltert(1);
@@ -502,9 +502,9 @@ end
 			y_baseline2 = y_baseline2(end:-1:1);		
 			y_symaverage	= .5 .* (y_baseline1 + y_baseline2); % -> symmetrischer Mittelwert
 
-			if Options.Basislinienoption == 10 % Methode: Normiert		
+			if Options.BaseLineOption == 10 % Methode: Normiert		
 				y_mess_korr	= y_mess_korr - y_symaverage;
-			else % Options.Basislinienoption == 100 % Methode: Mittelwert
+			else % Options.BaseLineOption == 100 % Methode: Mittelwert
 				y_mess_korr	= y_mess_korr - y_symaverage;
 			end
 
@@ -516,7 +516,7 @@ end
 
 				figure
 
-				if Options.Basislinienoption == 10 % Methode: Normiert
+				if Options.BaseLineOption == 10 % Methode: Normiert
 
 					plot(T,y_mess_korr)
 					hold on
@@ -525,7 +525,7 @@ end
 					legend({'Smoothed (Input)','','Normalized (Output)',['moving horizon average (' num2str(GleitMW_Zeitfenster) ' [h])'], ...
 						'MW (Forward)','MW (Backward)'});
 
-				else % Options.Basislinienoption == 100 % Methode: Mittelwert
+				else % Options.BaseLineOption == 100 % Methode: Mittelwert
 
 					%plot(xdata,ydata,'b:');
 					plot(T,Y,'b-');
@@ -1101,7 +1101,7 @@ disp('die Grafik sind nach Müll aus, sobald ein outlier markiert wird, liegt das
 			plot_h	= plot(gca(fig_h),t_sim,y_sim,'b','tag','sim');
 			plot_h2 = plot(t_show,y_show,'b--');
 			
-			if Options.Basislinienoption == 10 % = normiert
+			if Options.BaseLineOption == 10 % = normiert
 				ylim([-1.5 1.5]);
 			end
 			

@@ -1762,7 +1762,7 @@ function result = ChronAlyzer()
 						checkbox_temp			= checkbox_idx_in_replgr{replgr_id};
 								
 						for ii = checkbox_temp
-							err						= [err; (mess(:,ii, file_idx) - mittelwerte(replgr_id,:)).^2 ];
+							err						= [err; (mess(:,ii, file_idx)' - mittelwerte(replgr_id,:)).^2 ];
 							multiplot_Samples_h(ii) = plot(mw_axis, t,mess(:,ii, file_idx));
 							hold on
 							set(multiplot_Samples_h(ii),'ButtonDownFcn',{@Mouse_Select_CB});
@@ -1786,7 +1786,7 @@ function result = ChronAlyzer()
 							t_lim = get(mw_axis,'xlim');
 							set(mw_axis,'xTick',0:6:floor(t_lim(2)/6)*6,'xticklabels',arrayfun(@num2str,[0:6:floor(t_lim(2)/6)*6],'UniformOutput',false));
 							
-							err = sum(err,1); % Fehler über Samples aufaddieren
+							err = sum(err,1,'omitnan'); % Fehler über Samples aufaddieren
 							
 							error_plot_h.YData			= err;
 							error_plot_h.Parent.YLim	= [0 round(2*std(err) + mean(err))];

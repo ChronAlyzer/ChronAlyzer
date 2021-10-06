@@ -696,9 +696,13 @@ disp('die Grafik sind nach Müll aus, sobald ein outlier markiert wird, liegt das
 			uiwait(gcf)
 			
 			% look for 2nd maximum and minimum (more robust than 1st)
-			low_2nd			= mod(t_filter(iLo(2)),24); % if greater than 24)
-			high_2nd		= mod(t_filter(iHi(2))-12,24); % if greater than 24)
-			PHA				= mean([low_2nd, high_2nd])-12; 
+			if numel(iLo) < 2 || numel(iHi) < 2
+				PHA = 0; % the starting value of this parameter cannot be guessed.
+			else
+				low_2nd			= mod(t_filter(iLo(2)),24); % if greater than 24)
+				high_2nd		= mod(t_filter(iHi(2))-12,24); % if greater than 24)
+				PHA				= mean([low_2nd, high_2nd])-12; 
+			end
 			
 			if debug
 				
